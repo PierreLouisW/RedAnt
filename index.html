@@ -477,12 +477,11 @@ body.auth-locked #authGate{ display:flex; }
   </div>
   <div class="modal-body">
   <div class="card">
-    <h3>Evenement (definit le circuit et la longueur)</h3>
-    <p class="small">Choisissez l'evenement du calendrier : sa longueur de circuit (km/tour) sert au calcul du kilometrage. La longueur se renseigne dans l'onglet Calendrier. Vous pouvez aussi pre-remplir la seance depuis une tache.</p>
+    <h3>Evenement (definit circuit, date et seance)</h3>
+    <p class="small">Choisissez l'evenement : sa date remplit automatiquement la date de session, et sa longueur de circuit (km/tour, a renseigner dans l'onglet Calendrier) sert au calcul du kilometrage. Choisissez ensuite la tache/seance : sa date affine la date de session.</p>
     <div class="row">
       <div><label>Evenement *</label><select id="sessFromEventSelect"></select></div>
-      <div><label>Tache du calendrier (seance)</label><select id="sessFromTaskSelect"></select></div>
-      <div style="align-self:flex-end;"><button class="secondary" id="sessPrefillBtn">Pre-remplir date/seance</button></div>
+      <div><label>Tache / seance</label><select id="sessFromTaskSelect"></select></div>
     </div>
   </div>
 
@@ -513,24 +512,12 @@ body.auth-locked #authGate{ display:flex; }
         <datalist id="dl_pilotes"></datalist>
       </div>
       <div>
-        <label>Championnat</label>
-        <input list="dl_champ" id="f_championnat">
-        <datalist id="dl_champ"></datalist>
-      </div>
-      <div>
-        <label>Numero voiture</label>
-        <input id="f_numero">
-      </div>
-      <div>
-        <label>Seance</label>
-        <select id="f_seance">
-          <option>SHAKEDOWN</option><option>TD</option><option>CT</option><option>BT</option>
-          <option>FP1</option><option>FP2</option><option>Q1</option><option>Q2</option><option>RACE</option>
-        </select>
-      </div>
-      <div>
         <label>Run</label>
         <input id="f_run" placeholder="RUN 1">
+      </div>
+      <div>
+        <label>Seance (depuis la tache choisie ci-dessus)</label>
+        <div class="f_readout" id="f_seanceInfo">-</div>
       </div>
     </div>
     <div class="row">
@@ -2739,6 +2726,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const sm = document.getElementById('submitMsg'); if(sm) sm.textContent = '';
       try{ if(typeof renderChangeTable === 'function') renderChangeTable(); }catch(e){}
       try{ if(typeof updateKmPreview === 'function') updateKmPreview(); }catch(e){}
+      try{ if(typeof syncSessionFromSelection === 'function') syncSessionFromSelection(); }catch(e){}
     }
     function closeModal(){
       modal.classList.remove('open');
@@ -3189,12 +3177,33 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!ev) return '';
     return circuitGuessFromLocation(ev.location) || ev.location || ev.label || '';
   }
+  function selectedSessionTask(ev){
+    ev = ev || selectedSessionEvent();
+    const taskSel = document.getElementById('sessFromTaskSelect');
+    if(!ev || !taskSel) return null;
+    return (ev.tasks||[]).find(t=>String(t.id)===String(taskSel.value)) || null;
+  }
+  function sessionSeance(ev){
+    const task = selectedSessionTask(ev);
+    if(!task) return '';
+    return seanceGuessFromText(task.text) || task.text || '';
+  }
+  // Lie la date de session a l'evenement / la tache choisie, et met a jour l'apercu de seance
+  function syncSessionFromSelection(){
+    const ev = selectedSessionEvent();
+    if(ev){
+      const task = selectedSessionTask(ev);
+      const date = task && task.date ? task.date : ev.date;
+      if(date) document.getElementById('f_date').value = date;
+    }
+    const info = document.getElementById('f_seanceInfo');
+    if(info) info.textContent = sessionSeance(ev) || '-';
+  }
 
   function fillDatalists(){
-    const pilotes = new Set(); const champs = new Set();
-    STATE.sessions.forEach(s=>{ if(s.pilote) pilotes.add(s.pilote); if(s.championnat) champs.add(s.championnat); });
+    const pilotes = new Set();
+    STATE.sessions.forEach(s=>{ if(s.pilote) pilotes.add(s.pilote); });
     document.getElementById('dl_pilotes').innerHTML = [...pilotes].map(p=>'<option value="'+p+'">').join('');
-    document.getElementById('dl_champ').innerHTML = [...champs].map(p=>'<option value="'+p+'">').join('');
   }
 
   function updateKmPreview(){
@@ -3300,9 +3309,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const kmLap = ev ? (Number(ev.circuitKm)||0) : 0;
     const km = round3(tours*kmLap);
     const pilote = document.getElementById('f_pilote').value;
-    const championnat = document.getElementById('f_championnat').value;
-    const numero = document.getElementById('f_numero').value;
-    const seance = document.getElementById('f_seance').value;
+    const championnat = '';
+    const numero = '';
+    const seance = sessionSeance(ev);
     const run = document.getElementById('f_run').value;
     const casse = document.getElementById('f_casse').checked;
     const note = document.getElementById('f_note').value;
@@ -4154,28 +4163,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
   function wireSessPrefillEvents(){
     const evtSel = document.getElementById('sessFromEventSelect');
-    const prefillBtn = document.getElementById('sessPrefillBtn');
+    const taskSel = document.getElementById('sessFromTaskSelect');
     if(evtSel) evtSel.addEventListener('change', ()=>{
       fillSessFromTaskSelect();
-      const ev = selectedSessionEvent();
-      if(ev) document.getElementById('f_date').value = ev.date;
+      syncSessionFromSelection();
       updateKmPreview();
     });
-    if(prefillBtn) prefillBtn.addEventListener('click', ()=>{
-      const ev = (STATE.mlmcEvents||[]).find(e=>String(e.id)===String(evtSel.value));
-      if(!ev){ alert('Choisissez un evenement du calendrier.'); return; }
-      const taskSel = document.getElementById('sessFromTaskSelect');
-      const task = ev.tasks && ev.tasks.find(t=>String(t.id)===String(taskSel.value));
-      const date = task ? task.date : ev.date;
-      document.getElementById('f_date').value = date;
-      if(task){
-        const seanceGuess = seanceGuessFromText(task.text);
-        if(seanceGuess){
-          const seanceSel = document.getElementById('f_seance');
-          if(Array.from(seanceSel.options).some(o=>o.value===seanceGuess)) seanceSel.value = seanceGuess;
-        }
-      }
-    });
+    if(taskSel) taskSel.addEventListener('change', syncSessionFromSelection);
   }
   wireSessPrefillEvents();
 
