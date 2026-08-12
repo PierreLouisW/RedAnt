@@ -1045,6 +1045,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!Array.isArray(data.todoTemplates.mecano)) data.todoTemplates.mecano = builtinDefaultTodoTasks('mecano');
     if(!Array.isArray(data.todoTemplates.ingenieur)) data.todoTemplates.ingenieur = builtinDefaultTodoTasks('ingenieur');
     if(!data.setupData || typeof data.setupData!=='object') data.setupData = {};
+    if(!Array.isArray(data.setupSnapshots)) data.setupSnapshots = [];
     if(typeof data.setupPassword!=='string') data.setupPassword = '';
     return data;
   }
@@ -3835,21 +3836,30 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {key:'stWdCrossWeight', label:'St. WD / Cross Weight (%)'}
   ];
 
+  // Valeur d'un champ, tolerant a l'ancien format {target,actual}
+  function cval(x){ return (x && typeof x === 'object') ? (x.target||'') : (x==null ? '' : x); }
+
   function getSetupEntry(taskKey){
     if(!taskKey) return null;
     if(!STATE.setupData[taskKey]){
       const corners = {};
-      SETUP_CORNERS.forEach(c=>{
-        corners[c.key] = {};
-        SETUP_FIELDS.forEach(f=>{ corners[c.key][f.key] = {target:'', actual:''}; });
-      });
+      SETUP_CORNERS.forEach(c=>{ corners[c.key] = {}; SETUP_FIELDS.forEach(f=>{ corners[c.key][f.key] = ''; }); });
       const shared = {};
       SETUP_SHARED_FIELDS.forEach(f=>{ shared[f.key] = ''; });
       const weights = {};
       SETUP_WEIGHTS_FIELDS.forEach(f=>{ weights[f.key] = ''; });
-      STATE.setupData[taskKey] = {corners, shared, weights};
+      STATE.setupData[taskKey] = {corners, shared, weights, phase:'setup'};
     }
-    return STATE.setupData[taskKey];
+    // Normalisation (migration ancien format target/actual -> valeur unique)
+    const e = STATE.setupData[taskKey];
+    if(!e.corners) e.corners = {};
+    SETUP_CORNERS.forEach(c=>{ e.corners[c.key] = e.corners[c.key]||{}; SETUP_FIELDS.forEach(f=>{ e.corners[c.key][f.key] = cval(e.corners[c.key][f.key]); }); });
+    if(!e.shared) e.shared = {};
+    SETUP_SHARED_FIELDS.forEach(f=>{ e.shared[f.key] = cval(e.shared[f.key]); });
+    if(!e.weights) e.weights = {};
+    SETUP_WEIGHTS_FIELDS.forEach(f=>{ e.weights[f.key] = cval(e.weights[f.key]); });
+    if(!e.phase) e.phase = 'setup';
+    return e;
   }
 
   let setupUnlocked = false;
@@ -3859,18 +3869,19 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function collectSetupFieldRows(entry){
     const rows = [];
     SETUP_CORNERS.forEach(c=>{
+      const cc = (entry && entry.corners && entry.corners[c.key]) ? entry.corners[c.key] : {};
       SETUP_FIELDS.forEach(f=>{
-        const v = entry ? entry.corners[c.key][f.key] : {target:'',actual:''};
-        rows.push({label:c.label+' - '+f.label, value:(v.target||'-')+' / '+(v.actual||'-'), raw:(v.target||'')+'|'+(v.actual||'')});
+        const raw = cval(cc[f.key]);
+        rows.push({label:c.label+' - '+f.label, value:raw||'-', raw:raw});
       });
     });
     SETUP_SHARED_FIELDS.forEach(f=>{
-      const v = entry ? entry.shared[f.key] : '';
-      rows.push({label:f.label, value:v||'-', raw:v||''});
+      const raw = cval(entry && entry.shared ? entry.shared[f.key] : '');
+      rows.push({label:f.label, value:raw||'-', raw:raw});
     });
     SETUP_WEIGHTS_FIELDS.forEach(f=>{
-      const v = entry ? entry.weights[f.key] : '';
-      rows.push({label:f.label, value:v||'-', raw:v||''});
+      const raw = cval(entry && entry.weights ? entry.weights[f.key] : '');
+      rows.push({label:f.label, value:raw||'-', raw:raw});
     });
     return rows;
   }
@@ -3882,17 +3893,27 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     }
     const entry = getSetupEntry(taskKey);
     const ro = readOnly ? ' readonly' : '';
-    let html = '<div class="setup-banner">MECHANICAL SET-UP</div>';
+    const esc = (x)=>(cval(x)||'').replace(/"/g,'&quot;');
+    let html = '';
+    if(!readOnly){
+      html += '<div class="row" style="margin-bottom:6px;align-items:flex-end;">'+
+        '<div style="flex:0 0 auto;"><label>Phase</label><select id="setupPhaseSelect">'+
+          '<option value="setup"'+(entry.phase==='setup'?' selected':'')+'>Setup (avant seance)</option>'+
+          '<option value="setdown"'+(entry.phase==='setdown'?' selected':'')+'>Setdown (apres seance)</option>'+
+        '</select></div>'+
+        '<div style="flex:0 0 auto;"><button class="primary" id="setupSaveBtn" style="margin-top:0;">Enregistrer dans l\'historique</button></div>'+
+        '<div style="flex:1;"><span class="small">Ce brouillon n\'entre dans l\'historique qu\'au clic sur Enregistrer.</span></div>'+
+      '</div>';
+    }
+    html += '<div class="setup-banner">MECHANICAL SET-UP</div>';
     html += '<div class="setup-corners-grid" style="margin-top:12px;">';
     SETUP_CORNERS.forEach(c=>{
       html += '<div class="setup-corner-card">';
       html += '<div class="setup-banner" style="border-radius:0;">'+c.label+'</div>';
-      html += '<table class="setup-corner-table"><thead><tr><th>Parametre</th><th>Target</th><th>Actual</th></tr></thead><tbody>';
+      html += '<table class="setup-corner-table"><thead><tr><th>Parametre</th><th>Target</th></tr></thead><tbody>';
       SETUP_FIELDS.forEach(f=>{
-        const v = entry.corners[c.key][f.key];
         html += '<tr><td class="setup-label">'+f.label+(f.unit?' ['+f.unit+']':'')+'</td>'+
-          '<td><input type="text"'+ro+' class="setupFieldInput" data-corner="'+c.key+'" data-field="'+f.key+'" data-sub="target" value="'+(v.target||'').replace(/"/g,'&quot;')+'"></td>'+
-          '<td><input type="text"'+ro+' class="setupFieldInput" data-corner="'+c.key+'" data-field="'+f.key+'" data-sub="actual" value="'+(v.actual||'').replace(/"/g,'&quot;')+'"></td></tr>';
+          '<td><input type="text"'+ro+' class="setupFieldInput" data-corner="'+c.key+'" data-field="'+f.key+'" value="'+esc(entry.corners[c.key][f.key])+'"></td></tr>';
       });
       html += '</tbody></table></div>';
     });
@@ -3901,13 +3922,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     html += '<div class="setup-shared-grid">';
     html += '<div class="setup-shared-box"><h5>Plank / 3rd Element / Aero</h5>';
     SETUP_SHARED_FIELDS.forEach(f=>{
-      html += '<div class="setup-field-row"><label>'+f.label+'</label><input type="text"'+ro+' class="setupSharedInput" data-field="'+f.key+'" value="'+(entry.shared[f.key]||'').replace(/"/g,'&quot;')+'"></div>';
+      html += '<div class="setup-field-row"><label>'+f.label+'</label><input type="text"'+ro+' class="setupSharedInput" data-field="'+f.key+'" value="'+esc(entry.shared[f.key])+'"></div>';
     });
     html += '</div>';
     html += '<div class="setup-shared-box"><h5>Homologation / Poids / Resultats</h5>';
     html += '<table class="setup-weights-table"><tbody>';
     SETUP_WEIGHTS_FIELDS.forEach(f=>{
-      html += '<tr><td class="setup-label">'+f.label+'</td><td><input type="text"'+ro+' class="setupWeightInput" data-field="'+f.key+'" value="'+(entry.weights[f.key]||'').replace(/"/g,'&quot;')+'"></td></tr>';
+      html += '<tr><td class="setup-label">'+f.label+'</td><td><input type="text"'+ro+' class="setupWeightInput" data-field="'+f.key+'" value="'+esc(entry.weights[f.key])+'"></td></tr>';
     });
     html += '</tbody></table></div>';
     html += '</div>';
@@ -3917,51 +3938,77 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
     container.querySelectorAll('.setupFieldInput').forEach(inp=>{
       inp.addEventListener('change', (e)=>{
-        const en = getSetupEntry(taskKey);
-        en.corners[e.target.dataset.corner][e.target.dataset.field][e.target.dataset.sub] = e.target.value;
+        getSetupEntry(taskKey).corners[e.target.dataset.corner][e.target.dataset.field] = e.target.value;
         saveState();
       });
     });
     container.querySelectorAll('.setupSharedInput').forEach(inp=>{
       inp.addEventListener('change', (e)=>{
-        const en = getSetupEntry(taskKey);
-        en.shared[e.target.dataset.field] = e.target.value;
+        getSetupEntry(taskKey).shared[e.target.dataset.field] = e.target.value;
         saveState();
       });
     });
     container.querySelectorAll('.setupWeightInput').forEach(inp=>{
       inp.addEventListener('change', (e)=>{
-        const en = getSetupEntry(taskKey);
-        en.weights[e.target.dataset.field] = e.target.value;
+        getSetupEntry(taskKey).weights[e.target.dataset.field] = e.target.value;
         saveState();
       });
     });
+    const phaseSel = container.querySelector('#setupPhaseSelect');
+    if(phaseSel) phaseSel.addEventListener('change', (e)=>{ getSetupEntry(taskKey).phase = e.target.value; saveState(); });
+    const saveBtn = container.querySelector('#setupSaveBtn');
+    if(saveBtn) saveBtn.addEventListener('click', ()=> saveSetupSnapshot(taskKey));
+  }
+
+  function saveSetupSnapshot(taskKey){
+    if(!taskKey){ alert('Choisissez une session/seance avant d\'enregistrer.'); return; }
+    if(!Array.isArray(STATE.setupSnapshots)) STATE.setupSnapshots = [];
+    const entry = getSetupEntry(taskKey);
+    const snap = {
+      id: (STATE.setupSnapshots.reduce((m,s)=>Math.max(m,s.id||0),0))+1,
+      savedAt: Date.now(),
+      eventId: String(taskKey).split('::')[0],
+      taskKey: taskKey,
+      phase: entry.phase||'setup',
+      corners: JSON.parse(JSON.stringify(entry.corners)),
+      shared: JSON.parse(JSON.stringify(entry.shared)),
+      weights: JSON.parse(JSON.stringify(entry.weights))
+    };
+    STATE.setupSnapshots.push(snap);
+    activeSetupView = 'history';
+    saveState();
+    alert('Setup enregistre dans l\'historique ('+(snap.phase==='setdown'?'Setdown':'Setup')+').');
   }
 
   function renderSetupHistoryView(container){
-    const items = Object.keys(STATE.setupData).map(k=>{
-      const found = findTodoTask(k);
-      if(!found) return null;
-      return {key:k, ev:found.ev, task:found.task,
-        circuit: circuitGuessFromLocation(found.ev.location) || found.ev.location || found.ev.label,
-        evLabel: found.ev.label, evDate: found.ev.date, taskText: found.task.text, taskDate: found.task.date};
-    }).filter(Boolean);
+    const snaps = Array.isArray(STATE.setupSnapshots) ? STATE.setupSnapshots : [];
+    const items = snaps.map(s=>{
+      const found = findTodoTask(s.taskKey);
+      const ev = found ? found.ev : null;
+      const task = found ? found.task : null;
+      return {snap:s, ev, task,
+        eventId: String(s.eventId||(s.taskKey||'').split('::')[0]),
+        circuit: ev ? (circuitGuessFromLocation(ev.location)||ev.location||ev.label) : '-',
+        evLabel: ev ? ev.label : '(evenement supprime)',
+        evDate: ev ? ev.date : '',
+        taskText: task ? task.text : '(session)',
+        taskDate: task ? task.date : ''};
+    });
 
-    if(!items.length){ container.innerHTML = '<div class="small">Aucun setup enregistre pour le moment. Renseignez un setup dans l\'onglet Editer.</div>'; return; }
+    if(!items.length){ container.innerHTML = '<div class="small">Aucun setup enregistre. Dans l\'onglet Editer, renseignez les valeurs puis cliquez sur "Enregistrer dans l\'historique".</div>'; return; }
 
-    // Filtre par evenement
-    const eventsMap = new Map(items.map(i=>[String(i.ev.id), i.evLabel]));
+    const eventsMap = new Map(items.map(i=>[i.eventId, i.evLabel]));
     const filterVal = document.getElementById('setupHistEventFilter') ? document.getElementById('setupHistEventFilter').value : '';
-    let shown = filterVal ? items.filter(i=>String(i.ev.id)===String(filterVal)) : items.slice();
-    // Tri par evenement (date) puis par date/heure de tache
+    let shown = filterVal ? items.filter(i=>i.eventId===String(filterVal)) : items.slice();
+    // Tri par evenement (date), puis date de session, puis ordre d'enregistrement
     shown.sort((a,b)=>{
-      const ka = (a.evDate||'')+'#'+(a.taskDate||'')+'#'+(a.task.startTime||'');
-      const kb = (b.evDate||'')+'#'+(b.taskDate||'')+'#'+(b.task.startTime||'');
+      const ka = (a.evDate||'')+'#'+(a.taskDate||'')+'#'+String(a.snap.savedAt||0);
+      const kb = (b.evDate||'')+'#'+(b.taskDate||'')+'#'+String(b.snap.savedAt||0);
       return ka<kb?-1:(ka>kb?1:0);
     });
 
     const paramLabels = collectSetupFieldRows(null).map(r=>r.label);
-    const cols = shown.map(i=>({ i, rows: collectSetupFieldRows(STATE.setupData[i.key]) }));
+    const cols = shown.map(i=>({ i, rows: collectSetupFieldRows(i.snap) }));
 
     let html = '<div class="row"><div><label>Filtrer par evenement</label><select id="setupHistEventFilter">'+
       '<option value="">Tous les evenements</option>'+
@@ -3969,8 +4016,12 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       '</select></div><div style="align-self:flex-end;"><span class="small">Cellule surlignee = valeur differente du setup a gauche.</span></div></div>';
 
     html += '<div class="setup-hist-scroll"><table class="setup-history-table setup-hist-cols"><thead><tr><th>Parametre</th>'+
-      cols.map(c=>'<th>'+fmtDate(c.i.taskDate)+'<div class="small">'+c.i.circuit+' - '+(c.i.taskText||'')+'</div>'+
-        '<button class="secondary setupHistOpenBtn" data-key="'+c.i.key+'" style="margin-top:4px;padding:3px 8px;font-size:11px;">Ouvrir</button></th>').join('')+
+      cols.map(c=>{
+        const phase = c.i.snap.phase==='setdown' ? '<span class="pill" style="background:#8a5a2c;color:#fff;">Setdown</span>' : '<span class="pill" style="background:#2c5f8a;color:#fff;">Setup</span>';
+        return '<th>'+phase+'<div>'+fmtDate(c.i.taskDate)+'</div><div class="small">'+c.i.circuit+' - '+(c.i.taskText||'')+'</div>'+
+          '<button class="secondary setupHistOpenBtn" data-id="'+c.i.snap.id+'" style="margin-top:4px;padding:3px 8px;font-size:11px;">Ouvrir</button> '+
+          '<button class="danger setupHistDelBtn" data-id="'+c.i.snap.id+'" style="padding:3px 8px;font-size:11px;">Suppr</button></th>';
+      }).join('')+
       '</tr></thead><tbody>';
 
     paramLabels.forEach((label, idx)=>{
@@ -3991,34 +4042,50 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(filterSel) filterSel.addEventListener('change', ()=>{ renderSetupHistoryView(container); });
     container.querySelectorAll('.setupHistOpenBtn').forEach(btn=>{
       btn.addEventListener('click', ()=>{
-        const key = btn.dataset.key;
-        selectedSetupContext.eventId = key.split('::')[0];
-        selectedSetupContext.taskKey = key;
+        const snap = STATE.setupSnapshots.find(s=>String(s.id)===String(btn.dataset.id));
+        if(!snap) return;
+        const e = getSetupEntry(snap.taskKey);
+        e.corners = JSON.parse(JSON.stringify(snap.corners));
+        e.shared = JSON.parse(JSON.stringify(snap.shared));
+        e.weights = JSON.parse(JSON.stringify(snap.weights));
+        e.phase = snap.phase||'setup';
+        selectedSetupContext.eventId = String(snap.eventId||(snap.taskKey||'').split('::')[0]);
+        selectedSetupContext.taskKey = snap.taskKey;
         activeSetupView = 'edit';
-        renderSetupTabPage();
+        saveState();
+      });
+    });
+    container.querySelectorAll('.setupHistDelBtn').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        if(!confirm('Supprimer ce setup enregistre de l\'historique ?')) return;
+        STATE.setupSnapshots = STATE.setupSnapshots.filter(s=>String(s.id)!==String(btn.dataset.id));
+        saveState();
       });
     });
   }
 
   function renderSetupCompareView(container){
-    const options = Object.keys(STATE.setupData).map(k=>{
-      const found = findTodoTask(k);
-      if(!found) return null;
-      const circ = circuitGuessFromLocation(found.ev.location);
-      return {key:k, label: fmtDate(found.task.date)+' - '+(circ||found.ev.label)+' - '+found.task.text};
-    }).filter(Boolean).sort((a,b)=> a.label<b.label?-1:1);
+    const snaps = Array.isArray(STATE.setupSnapshots) ? STATE.setupSnapshots : [];
+    const options = snaps.map(s=>{
+      const found = findTodoTask(s.taskKey);
+      const circ = found ? (circuitGuessFromLocation(found.ev.location)||found.ev.label) : '-';
+      const dt = found ? fmtDate(found.task.date) : '';
+      const ph = s.phase==='setdown' ? 'Setdown' : 'Setup';
+      return {id:String(s.id), label: '['+ph+'] '+dt+' - '+circ+(found?' - '+found.task.text:'')};
+    }).sort((a,b)=> a.label<b.label?-1:1);
 
     let html = '<div class="row">'+
       '<div><label>Setup A</label><select id="setupCompareA"><option value="">(choisir)</option>'+
-        options.map(o=>'<option value="'+o.key+'" '+(compareSelection.a===o.key?'selected':'')+'>'+o.label+'</option>').join('')+
+        options.map(o=>'<option value="'+o.id+'" '+(String(compareSelection.a)===o.id?'selected':'')+'>'+o.label+'</option>').join('')+
       '</select></div>'+
       '<div><label>Setup B</label><select id="setupCompareB"><option value="">(choisir)</option>'+
-        options.map(o=>'<option value="'+o.key+'" '+(compareSelection.b===o.key?'selected':'')+'>'+o.label+'</option>').join('')+
+        options.map(o=>'<option value="'+o.id+'" '+(String(compareSelection.b)===o.id?'selected':'')+'>'+o.label+'</option>').join('')+
       '</select></div>'+
     '</div>';
 
-    const entryA = compareSelection.a ? STATE.setupData[compareSelection.a] : null;
-    const entryB = compareSelection.b ? STATE.setupData[compareSelection.b] : null;
+    const findSnap = (id)=> snaps.find(s=>String(s.id)===String(id)) || null;
+    const entryA = compareSelection.a ? findSnap(compareSelection.a) : null;
+    const entryB = compareSelection.b ? findSnap(compareSelection.b) : null;
     if(entryA || entryB){
       const rowsA = collectSetupFieldRows(entryA);
       const rowsB = collectSetupFieldRows(entryB);
