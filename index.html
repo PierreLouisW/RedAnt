@@ -12,9 +12,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
-  --bg:#0f1720; --panel:#17212b; --panel2:#1e2a36; --border:#2b3a47;
-  --text:#e6edf3; --muted:#8b9bab; --accent:#3fa9f5;
-  --ok:#2ecc71; --soon1:#f5a623; --soon2:#e67e22; --due1:#e74c3c; --due2:#c0392b;
+  --bg:#0d0e10; --panel:#16181c; --panel2:#1f2229; --border:#2e323a;
+  --text:#f2f4f7; --muted:#9aa4af;
+  --accent:#e2231a; --accent-hover:#c01810; --accent-soft:rgba(226,35,26,.14);
+  --ok:#2ecc71; --soon1:#f5a623; --soon2:#e67e22; --due1:#ff5a4d; --due2:#c0392b;
 }
 *{box-sizing:border-box;}
 body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);}
@@ -89,13 +90,20 @@ a.dl{color:var(--accent);}
 select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 
 /* ---- ACCUEIL ---- */
-.team-header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap;}
-.team-header-left{display:flex;align-items:center;gap:16px;}
-.team-car{flex:0 0 auto;width:340px;height:82px;opacity:1;}
-@media (max-width:760px){.team-car{width:220px;height:53px;}}
-.team-logo{height:64px;width:auto;border-radius:8px;flex:0 0 auto;box-shadow:0 2px 8px rgba(0,0,0,0.4);object-fit:contain;background:#231f20;padding:4px;}
-.team-name{font-size:20px;font-weight:700;}
-.team-sub{color:var(--muted);font-size:13px;}
+.team-hero{position:relative;overflow:hidden;border-radius:16px;margin-bottom:22px;background:linear-gradient(135deg,#1b1d22 0%,#121317 55%,#0b0c0e 100%);border:1px solid var(--border);box-shadow:0 12px 34px rgba(0,0,0,.5);}
+.team-hero::before{content:"";position:absolute;top:-45%;right:-8%;width:62%;height:190%;background:radial-gradient(ellipse at center,rgba(226,35,26,.38),rgba(226,35,26,0) 68%);transform:rotate(12deg);pointer-events:none;}
+.team-hero::after{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:linear-gradient(180deg,var(--accent),#6f0d09);}
+.team-hero-top{position:relative;z-index:2;display:flex;align-items:center;gap:20px;padding:22px 26px 8px;flex-wrap:wrap;}
+.team-logo{height:72px;width:auto;border-radius:12px;flex:0 0 auto;box-shadow:0 6px 18px rgba(0,0,0,.55);}
+.team-hero-titles{flex:1 1 auto;min-width:170px;}
+.team-name{font-size:25px;font-weight:800;letter-spacing:.4px;color:#fff;line-height:1.1;text-shadow:0 2px 10px rgba(0,0,0,.45);}
+.team-sub{color:var(--muted);font-size:13px;margin-top:5px;}
+.team-champ{flex:0 0 auto;}
+.team-champ img{display:block;height:56px;width:auto;background:#fff;border-radius:10px;padding:8px 14px;box-shadow:0 4px 14px rgba(0,0,0,.45);}
+.team-car-wrap{position:relative;z-index:2;padding:6px 26px 22px;text-align:center;}
+.team-car-wrap::before{content:"";position:absolute;left:50%;bottom:24px;width:66%;height:22px;transform:translateX(-50%);background:radial-gradient(ellipse at center,rgba(226,35,26,.5),rgba(226,35,26,0) 70%);filter:blur(7px);pointer-events:none;}
+.team-car-img{position:relative;width:100%;max-width:840px;height:auto;filter:drop-shadow(0 20px 24px rgba(0,0,0,.6));}
+@media (max-width:760px){.team-hero-top{gap:14px;padding:16px 16px 4px;}.team-logo{height:56px;}.team-name{font-size:20px;}.team-champ img{height:42px;padding:6px 10px;}.team-car-wrap{padding:0 12px 16px;}}
 .home-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 @media (max-width:760px){.home-grid{grid-template-columns:1fr;}}
 .home-box h4{margin:0 0 10px;font-size:14px;display:flex;align-items:center;gap:8px;}
@@ -309,7 +317,7 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 body.auth-locked > *:not(#authGate){ display:none !important; }
 #authGate{ display:none; min-height:100vh; align-items:center; justify-content:center; background:var(--bg); }
 body.auth-locked #authGate{ display:flex; }
-.auth-box{ width:100%; max-width:360px; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:28px; }
+.auth-box{ width:100%; max-width:360px; background:var(--panel); border:1px solid var(--border); border-top:3px solid var(--accent); border-radius:14px; padding:28px; box-shadow:0 14px 40px rgba(0,0,0,.5); }
 .auth-box h2{ margin:0 0 4px; font-size:18px; }
 .auth-box .sub{ color:var(--muted); font-size:13px; margin-bottom:20px; }
 .auth-box label{ display:block; font-size:12px; color:var(--muted); margin:14px 0 6px; }
@@ -318,7 +326,7 @@ body.auth-locked #authGate{ display:flex; }
 .auth-box button:disabled{ opacity:.6; cursor:not-allowed; }
 .auth-error{ color:var(--due2); font-size:13px; margin-top:12px; min-height:16px; }
 .auth-logo{ display:flex; justify-content:center; margin-bottom:18px; }
-.auth-logo img{ height:36px; }
+.auth-logo img{ height:72px; width:auto; border-radius:10px; box-shadow:0 4px 14px rgba(0,0,0,.5); }
 
 /* --- Statut connexion reseau --- */
 .sync-dot.sync-offline{ background:var(--due2); }
@@ -330,7 +338,7 @@ body.auth-locked #authGate{ display:flex; }
 
 <div id="authGate">
   <div class="auth-box">
-    <div class="auth-logo"><img src="icons/icon-192.png" alt="RedAnt"></div>
+    <div class="auth-logo"><img src="logo.png" alt="Ajith-RedAnt Racing"></div>
     <h2>Ajith Redant Racing Team</h2>
     <div class="sub">Connexion equipe - acces reserve</div>
     <form id="authForm">
@@ -372,16 +380,19 @@ body.auth-locked #authGate{ display:flex; }
 
 <!-- TAB: ACCUEIL -->
 <section class="tab active" id="tab-accueil">
-  <div class="team-header">
-    <div class="team-header-left">
-      
-      <div>
+  <div class="team-hero">
+    <div class="team-hero-top">
+      <img class="team-logo" src="logo.png" alt="Ajith-RedAnt Racing">
+      <div class="team-hero-titles">
         <div class="team-name" id="teamName">Ajith Redant Racing Team</div>
-        <div class="team-sub">Michelin Le Mans Cup - LMP3 - <span id="homeChassis"></span></div>
+        <div class="team-sub">LMP3 &middot; Michelin Le Mans Cup &middot; <span id="homeChassis"></span></div>
+      </div>
+      <div class="team-champ">
+        <img src="Michelin.png" alt="Michelin Le Mans Cup">
       </div>
     </div>
-    <div class="team-car">
-      
+    <div class="team-car-wrap">
+      <img class="team-car-img" src="voiture.png" alt="Ajith-RedAnt LMP3 #36">
     </div>
   </div>
 
@@ -393,7 +404,6 @@ body.auth-locked #authGate{ display:flex; }
   <div id="homeTodoMecanoReminder"></div>
 
   <div id="homeOrderAlert"></div>
-  <p class="footer-note">Le logo ci-dessus est un espace reserve - remplacez-le par le vrai logo de l'equipe en editant l'image dans le code (ou demandez a Claude de l'integrer depuis un fichier image).</p>
 </section>
 
 <!-- TAB: TO DO -->
