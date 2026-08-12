@@ -313,6 +313,23 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .brake-summary-line button{padding:5px 10px;font-size:11px;margin:0;}
 .brake-detail{margin-top:12px;padding-top:12px;border-top:1px solid var(--border);}
 
+/* --- Bouton Nouvelle session (bandeau) --- */
+.hdr-newsession{background:var(--accent);color:#fff;border:none;padding:9px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(226,35,26,.35);}
+.hdr-newsession:hover{background:var(--accent-hover);}
+
+/* --- Pop-up (modale) Nouvelle session --- */
+.modal-overlay{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.6);backdrop-filter:blur(2px);padding:24px;overflow-y:auto;}
+.modal-overlay.open{display:flex;align-items:flex-start;justify-content:center;}
+.modal-dialog{background:var(--bg);border:1px solid var(--border);border-top:3px solid var(--accent);border-radius:14px;width:100%;max-width:1000px;margin:auto;box-shadow:0 18px 50px rgba(0,0,0,.6);display:flex;flex-direction:column;max-height:calc(100vh - 48px);}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);border-radius:14px 14px 0 0;z-index:2;}
+.modal-head h2{margin:0;font-size:18px;}
+.modal-close{background:none;border:none;color:var(--muted);font-size:26px;line-height:1;cursor:pointer;padding:0 6px;}
+.modal-close:hover{color:var(--text);}
+.modal-body{padding:20px 22px;overflow-y:auto;}
+.modal-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:4px;}
+.modal-actions .primary{margin-top:0;}
+@media (max-width:760px){.modal-overlay{padding:0;}.modal-dialog{max-width:none;border-radius:0;min-height:100vh;max-height:none;border-top:none;}.modal-head{border-radius:0;}}
+
 /* --- Ecran de connexion equipe --- */
 body.auth-locked > *:not(#authGate){ display:none !important; }
 #authGate{ display:none; min-height:100vh; align-items:center; justify-content:center; background:var(--bg); }
@@ -359,6 +376,7 @@ body.auth-locked #authGate{ display:flex; }
     <div class="sync-status" id="syncStatus">Connexion...</div>
   </div>
   <div style="display:flex;align-items:center;gap:14px;">
+    <button class="hdr-newsession" id="openSessionBtn">+ Nouvelle session</button>
     <div id="userBadge"></div>
     <button class="secondary" id="refreshSyncBtn" style="margin-right:8px;">Actualiser</button>
     <span class="badge total" id="hdrTotal">-- km</span>
@@ -368,7 +386,6 @@ body.auth-locked #authGate{ display:flex; }
 <nav class="tabs">
   <button data-tab="accueil" class="active">Accueil</button>
   <button data-tab="todo">To Do</button>
-  <button data-tab="session">+ Nouvelle session</button>
   <button data-tab="parts">Etat des pieces</button>
   <button data-tab="historique">Historique</button>
   <button data-tab="stock">Stock</button>
@@ -451,7 +468,13 @@ body.auth-locked #authGate{ display:flex; }
 </section>
 
 <!-- TAB: NOUVELLE SESSION -->
-<section class="tab" id="tab-session">
+<div class="modal-overlay" id="sessionModal" aria-hidden="true">
+ <div class="modal-dialog" role="dialog" aria-modal="true" aria-label="Nouvelle session">
+  <div class="modal-head">
+    <h2>+ Nouvelle session</h2>
+    <button class="modal-close" id="sessionModalClose" aria-label="Fermer">&times;</button>
+  </div>
+  <div class="modal-body">
   <div class="card">
     <h3>Depuis le calendrier MLMC (optionnel)</h3>
     <p class="small">Pre-remplissez la date, le circuit et la seance a partir d'un evenement ou d'une tache du calendrier, pour eviter les doublons/decalages de date.</p>
@@ -538,9 +561,14 @@ body.auth-locked #authGate{ display:flex; }
     </div>
   </div>
 
-  <button class="primary" id="submitSession">Enregistrer la session</button>
-  <span class="small" id="submitMsg"></span>
-</section>
+  <div class="modal-actions">
+    <button class="secondary" id="sessionModalCancel">Fermer</button>
+    <button class="primary" id="submitSession">Enregistrer la session</button>
+    <span class="small" id="submitMsg"></span>
+  </div>
+  </div><!-- /modal-body -->
+ </div><!-- /modal-dialog -->
+</div><!-- /modal-overlay -->
 
 <!-- TAB: ETAT DES PIECES -->
 <section class="tab" id="tab-parts">
@@ -2706,6 +2734,30 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
     });
   });
+
+  // ---------- POP-UP NOUVELLE SESSION ----------
+  (function(){
+    const modal = document.getElementById('sessionModal');
+    if(!modal) return;
+    const openBtn = document.getElementById('openSessionBtn');
+    function openModal(){
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden','false');
+      document.body.style.overflow = 'hidden';
+      const sm = document.getElementById('submitMsg'); if(sm) sm.textContent = '';
+      try{ if(typeof renderChangeTable === 'function') renderChangeTable(); }catch(e){}
+    }
+    function closeModal(){
+      modal.classList.remove('open');
+      modal.setAttribute('aria-hidden','true');
+      document.body.style.overflow = '';
+    }
+    if(openBtn) openBtn.addEventListener('click', openModal);
+    const x = document.getElementById('sessionModalClose'); if(x) x.addEventListener('click', closeModal);
+    const c = document.getElementById('sessionModalCancel'); if(c) c.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e)=>{ if(e.target === modal) closeModal(); });
+    document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && modal.classList.contains('open')) closeModal(); });
+  })();
 
   document.querySelectorAll('#historiqueSubtabs button').forEach(btn=>{
     btn.addEventListener('click', ()=>{
