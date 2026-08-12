@@ -3803,8 +3803,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {key:'rhUnderfloor', label:'RH underfloor', unit:'mm'}
   ];
   const SETUP_SHARED_FIELDS = [
-    {key:'plankFront', label:'Plank Front'},
-    {key:'plankRear', label:'Plank Rear'},
+    {key:'plankFront', label:'Plank Front', source:'plank'},
+    {key:'plankRear', label:'Plank Rear', source:'plank'},
+    {key:'brakeSetFront', label:'Set frein avant', source:'brake'},
+    {key:'brakeSetRear', label:'Set frein arriere', source:'brake'},
     {key:'thirdFrontSpring', label:'3rd Elem. Front - Spring'},
     {key:'thirdFrontPreload', label:'3rd Elem. Front - Preload'},
     {key:'thirdFrontSprGap', label:'3rd Elem. Front - Spr Gap'},
@@ -3819,12 +3821,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {key:'diffPreload', label:'Diff preload (N/m)'}
   ];
   const SETUP_WEIGHTS_FIELDS = [
-    {key:'minWeightTarget', label:'Min Weight Target (Kg)'},
-    {key:'minWeightActual', label:'Min Weight Actual (Kg)'},
-    {key:'minFrontRH', label:'Min Front RH (mm)'},
-    {key:'minRearRH', label:'Min Rear RH (mm)'},
     {key:'rake', label:'Rake (deg)'},
-    {key:'restrictor', label:'Restrictor (mm)'},
     {key:'cwFL', label:'Corner weight FL (Kg)'},
     {key:'cwFR', label:'Corner weight FR (Kg)'},
     {key:'cwRL', label:'Corner weight RL (Kg)'},
@@ -3835,9 +3832,57 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {key:'totWeight', label:'TOT weight (Kg)'},
     {key:'stWdCrossWeight', label:'St. WD / Cross Weight (%)'}
   ];
+  const SETUP_CONDITION_FIELDS = [
+    {key:'weather', label:'Meteo', type:'select', options:['Sec','Wet']},
+    {key:'driver', label:'Pilote', type:'driver'},
+    {key:'lapTime', label:'Chrono (best lap)'},
+    {key:'airTemp', label:'Temp. air (C)'},
+    {key:'trackTemp', label:'Temp. piste (C)'}
+  ];
 
   // Valeur d'un champ, tolerant a l'ancien format {target,actual}
   function cval(x){ return (x && typeof x === 'object') ? (x.target||'') : (x==null ? '' : x); }
+
+  // Liste deroulante des planches en stock (avec epaisseur/usure en mm si connue)
+  function setupPlankOptions(sel){
+    const esc = (x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const cat = getCategory('plank');
+    const items = (STATE.stockItems||[]).filter(i=>i.categoryKey==='plank' && i.status!=='jetee');
+    let o = '<option value="">(aucune)</option>'; let has=false;
+    items.forEach(i=>{
+      const code = i.code || i.name || ('#'+i.id);
+      const w = cat ? wearInfo(cat, i) : null;
+      const mm = (w && w.avg!=null) ? ' - '+w.avg+'mm' : '';
+      if(String(sel)===String(code)) has=true;
+      o += '<option value="'+esc(code)+'"'+(String(sel)===String(code)?' selected':'')+'>'+code+mm+' ('+(STOCK_STATUS_LABEL[i.status]||i.status)+')</option>';
+    });
+    if(sel && !has) o += '<option value="'+esc(sel)+'" selected>'+sel+' (hors stock)</option>';
+    return o;
+  }
+  // Liste deroulante des sets de frein (assemblages) avec % d'usure disque / plaquette
+  function setupBrakeOptions(sel){
+    const esc = (x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const disc = getCategory('disc'), pad = getCategory('pad');
+    let o = '<option value="">(aucun)</option>'; let has=false;
+    (STATE.brakeAssemblies||[]).forEach(a=>{
+      const name = a.name || ('Assemblage #'+a.id);
+      const dp = assemblyWearPct(a,'discL','discR',disc), pp = assemblyWearPct(a,'padL','padR',pad);
+      const wear = ' - disque '+(dp!=null?dp+'%':'-')+' / plaq '+(pp!=null?pp+'%':'-');
+      if(String(sel)===String(name)) has=true;
+      o += '<option value="'+esc(name)+'"'+(String(sel)===String(name)?' selected':'')+'>'+name+wear+'</option>';
+    });
+    if(sel && !has) o += '<option value="'+esc(sel)+'" selected>'+sel+'</option>';
+    return o;
+  }
+  // Liste deroulante des pilotes connus (depuis les sessions)
+  function setupDriverOptions(sel){
+    const esc = (x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const names = Array.from(new Set((STATE.sessions||[]).map(s=>s.pilote).filter(Boolean)));
+    let o = '<option value="">(non defini)</option>'; let has=false;
+    names.forEach(n=>{ if(String(sel)===String(n)) has=true; o += '<option value="'+esc(n)+'"'+(String(sel)===String(n)?' selected':'')+'>'+n+'</option>'; });
+    if(sel && !has) o += '<option value="'+esc(sel)+'" selected>'+sel+'</option>';
+    return o;
+  }
 
   function getSetupEntry(taskKey){
     if(!taskKey) return null;
@@ -3848,7 +3893,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       SETUP_SHARED_FIELDS.forEach(f=>{ shared[f.key] = ''; });
       const weights = {};
       SETUP_WEIGHTS_FIELDS.forEach(f=>{ weights[f.key] = ''; });
-      STATE.setupData[taskKey] = {corners, shared, weights, phase:'setup'};
+      const conditions = {};
+      SETUP_CONDITION_FIELDS.forEach(f=>{ conditions[f.key] = ''; });
+      STATE.setupData[taskKey] = {corners, shared, weights, conditions, phase:'setup'};
     }
     // Normalisation (migration ancien format target/actual -> valeur unique)
     const e = STATE.setupData[taskKey];
@@ -3858,6 +3905,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     SETUP_SHARED_FIELDS.forEach(f=>{ e.shared[f.key] = cval(e.shared[f.key]); });
     if(!e.weights) e.weights = {};
     SETUP_WEIGHTS_FIELDS.forEach(f=>{ e.weights[f.key] = cval(e.weights[f.key]); });
+    if(!e.conditions) e.conditions = {};
+    SETUP_CONDITION_FIELDS.forEach(f=>{ e.conditions[f.key] = cval(e.conditions[f.key]); });
     if(!e.phase) e.phase = 'setup';
     return e;
   }
@@ -3882,6 +3931,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     SETUP_WEIGHTS_FIELDS.forEach(f=>{
       const raw = cval(entry && entry.weights ? entry.weights[f.key] : '');
       rows.push({label:f.label, value:raw||'-', raw:raw});
+    });
+    SETUP_CONDITION_FIELDS.forEach(f=>{
+      const raw = cval(entry && entry.conditions ? entry.conditions[f.key] : '');
+      rows.push({label:'Cond. '+f.label, value:raw||'-', raw:raw});
     });
     return rows;
   }
@@ -3919,12 +3972,37 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     });
     html += '</div>';
 
+    const roSel = readOnly ? ' disabled' : '';
+    const sharedControl = (f)=>{
+      if(f.source==='plank') return '<select'+roSel+' class="setupSharedInput" data-field="'+f.key+'">'+setupPlankOptions(cval(entry.shared[f.key]))+'</select>';
+      if(f.source==='brake') return '<select'+roSel+' class="setupSharedInput" data-field="'+f.key+'">'+setupBrakeOptions(cval(entry.shared[f.key]))+'</select>';
+      return '<input type="text"'+ro+' class="setupSharedInput" data-field="'+f.key+'" value="'+esc(entry.shared[f.key])+'">';
+    };
+    const sharedBox = (title, fields, stripPrefix)=>{
+      let h = '<div class="setup-shared-box"><h5>'+title+'</h5>';
+      fields.forEach(f=>{
+        const lab = stripPrefix ? f.label.replace(/^3rd Elem\. (Front|Rear) - /,'') : f.label;
+        h += '<div class="setup-field-row"><label>'+lab+'</label>'+sharedControl(f)+'</div>';
+      });
+      return h + '</div>';
+    };
+    const condBox = ()=>{
+      let h = '<div class="setup-shared-box"><h5>Conditions de session</h5>';
+      SETUP_CONDITION_FIELDS.forEach(f=>{
+        let ctl;
+        if(f.type==='select') ctl = '<select'+roSel+' class="setupCondInput" data-field="'+f.key+'"><option value="">(-)</option>'+f.options.map(o=>'<option value="'+o+'"'+(cval(entry.conditions[f.key])===o?' selected':'')+'>'+o+'</option>').join('')+'</select>';
+        else if(f.type==='driver') ctl = '<select'+roSel+' class="setupCondInput" data-field="'+f.key+'">'+setupDriverOptions(cval(entry.conditions[f.key]))+'</select>';
+        else ctl = '<input type="text"'+ro+' class="setupCondInput" data-field="'+f.key+'" value="'+esc(entry.conditions[f.key])+'">';
+        h += '<div class="setup-field-row"><label>'+f.label+'</label>'+ctl+'</div>';
+      });
+      return h + '</div>';
+    };
     html += '<div class="setup-shared-grid">';
-    html += '<div class="setup-shared-box"><h5>Plank / 3rd Element / Aero</h5>';
-    SETUP_SHARED_FIELDS.forEach(f=>{
-      html += '<div class="setup-field-row"><label>'+f.label+'</label><input type="text"'+ro+' class="setupSharedInput" data-field="'+f.key+'" value="'+esc(entry.shared[f.key])+'"></div>';
-    });
-    html += '</div>';
+    html += condBox();
+    html += sharedBox('Freins (set complet)', SETUP_SHARED_FIELDS.filter(f=>f.source==='brake'), false);
+    html += sharedBox('3rd Element Front', SETUP_SHARED_FIELDS.filter(f=>f.key.indexOf('thirdFront')===0), true);
+    html += sharedBox('3rd Element Rear', SETUP_SHARED_FIELDS.filter(f=>f.key.indexOf('thirdRear')===0), true);
+    html += sharedBox('Plank / Aero / Diff', SETUP_SHARED_FIELDS.filter(f=>['plankFront','plankRear','wingAngle','diffPreload'].indexOf(f.key)!==-1), false);
     html += '<div class="setup-shared-box"><h5>Homologation / Poids / Resultats</h5>';
     html += '<table class="setup-weights-table"><tbody>';
     SETUP_WEIGHTS_FIELDS.forEach(f=>{
@@ -3938,7 +4016,12 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
     container.querySelectorAll('.setupFieldInput').forEach(inp=>{
       inp.addEventListener('change', (e)=>{
-        getSetupEntry(taskKey).corners[e.target.dataset.corner][e.target.dataset.field] = e.target.value;
+        const corner = e.target.dataset.corner, field = e.target.dataset.field, val = e.target.value;
+        const en = getSetupEntry(taskKey);
+        en.corners[corner][field] = val;
+        // Symetrie : cote droit recopie automatiquement sur le cote gauche (modifiable ensuite)
+        if(corner==='fr') en.corners['fl'][field] = val;
+        else if(corner==='rr') en.corners['rl'][field] = val;
         saveState();
       });
     });
@@ -3951,6 +4034,12 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     container.querySelectorAll('.setupWeightInput').forEach(inp=>{
       inp.addEventListener('change', (e)=>{
         getSetupEntry(taskKey).weights[e.target.dataset.field] = e.target.value;
+        saveState();
+      });
+    });
+    container.querySelectorAll('.setupCondInput').forEach(inp=>{
+      inp.addEventListener('change', (e)=>{
+        getSetupEntry(taskKey).conditions[e.target.dataset.field] = e.target.value;
         saveState();
       });
     });
@@ -3972,7 +4061,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       phase: entry.phase||'setup',
       corners: JSON.parse(JSON.stringify(entry.corners)),
       shared: JSON.parse(JSON.stringify(entry.shared)),
-      weights: JSON.parse(JSON.stringify(entry.weights))
+      weights: JSON.parse(JSON.stringify(entry.weights)),
+      conditions: JSON.parse(JSON.stringify(entry.conditions||{}))
     };
     STATE.setupSnapshots.push(snap);
     activeSetupView = 'history';
@@ -4048,6 +4138,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         e.corners = JSON.parse(JSON.stringify(snap.corners));
         e.shared = JSON.parse(JSON.stringify(snap.shared));
         e.weights = JSON.parse(JSON.stringify(snap.weights));
+        e.conditions = JSON.parse(JSON.stringify(snap.conditions||{}));
         e.phase = snap.phase||'setup';
         selectedSetupContext.eventId = String(snap.eventId||(snap.taskKey||'').split('::')[0]);
         selectedSetupContext.taskKey = snap.taskKey;
