@@ -24,9 +24,10 @@ header h1{font-size:18px;margin:0;font-weight:600;}
 header .sub{color:var(--muted);font-size:13px;}
 .badge{display:inline-block;padding:4px 10px;border-radius:14px;font-size:12px;font-weight:600;}
 .badge.total{background:var(--accent);color:#fff;}
-nav.tabs{display:flex;gap:4px;padding:10px 24px 0;background:var(--panel);border-bottom:1px solid var(--border);flex-wrap:wrap;}
-nav.tabs button{background:transparent;border:none;color:var(--muted);padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:2px solid transparent;}
-nav.tabs button.active{color:var(--text);border-bottom:2px solid var(--accent);}
+nav.tabs{display:flex;gap:4px;padding:10px 24px 0;background:linear-gradient(180deg,#e2231a,#c01810);border-bottom:1px solid #7a0f0a;flex-wrap:wrap;}
+nav.tabs button{background:transparent;border:none;color:rgba(255,255,255,.82);padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:2px solid transparent;transition:color .12s;}
+nav.tabs button:hover{color:#fff;}
+nav.tabs button.active{color:#fff;font-weight:600;border-bottom:2px solid #fff;}
 section.tab{display:none;padding:20px 24px;max-width:1200px;margin:0 auto;}
 section.tab.active{display:block;}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;}
@@ -51,6 +52,7 @@ tbody tr:hover{background:var(--panel2);}
 .dot-replace-due{background:var(--due2);}
 .small{font-size:12px;color:var(--muted);}
 .kmpreview{font-size:22px;font-weight:700;color:var(--accent);}
+.f_readout{padding:8px 10px;background:var(--panel2);border:1px dashed var(--border);border-radius:6px;font-size:14px;min-height:37px;display:flex;align-items:center;color:var(--text);}
 .searchbar{margin-bottom:10px;}
 .pill{display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;background:var(--panel2);border:1px solid var(--border);margin-right:4px;}
 .footer-note{color:var(--muted);font-size:12px;margin-top:24px;}
@@ -64,6 +66,8 @@ a.dl{color:var(--accent);}
 .subtabs button.active{background:var(--accent);color:#fff;border-color:var(--accent);}
 .historique-sub{display:none;}
 .historique-sub.active{display:block;}
+.voiture-sub{display:none;}
+.voiture-sub.active{display:block;}
 .status-pill{display:inline-block;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;color:#fff;}
 .status-pill.jetee{background:#6b6b6b;}
 .status-pill.atelier{background:#2c5f8a;}
@@ -386,11 +390,8 @@ body.auth-locked #authGate{ display:flex; }
 <nav class="tabs">
   <button data-tab="accueil" class="active">Accueil</button>
   <button data-tab="todo">To Do</button>
-  <button data-tab="parts">Etat des pieces</button>
+  <button data-tab="voiture">Voiture</button>
   <button data-tab="historique">Historique</button>
-  <button data-tab="stock">Stock</button>
-  <button data-tab="buildsheet">Buildsheet</button>
-  <button data-tab="circuits">Circuits</button>
   <button data-tab="calendar">Calendrier MLMC</button>
   <button data-tab="io">Import / Export</button>
 </nav>
@@ -476,12 +477,12 @@ body.auth-locked #authGate{ display:flex; }
   </div>
   <div class="modal-body">
   <div class="card">
-    <h3>Depuis le calendrier MLMC (optionnel)</h3>
-    <p class="small">Pre-remplissez la date, le circuit et la seance a partir d'un evenement ou d'une tache du calendrier, pour eviter les doublons/decalages de date.</p>
+    <h3>Evenement (definit le circuit et la longueur)</h3>
+    <p class="small">Choisissez l'evenement du calendrier : sa longueur de circuit (km/tour) sert au calcul du kilometrage. La longueur se renseigne dans l'onglet Calendrier. Vous pouvez aussi pre-remplir la seance depuis une tache.</p>
     <div class="row">
-      <div><label>Evenement</label><select id="sessFromEventSelect"></select></div>
-      <div><label>Tache du calendrier</label><select id="sessFromTaskSelect"></select></div>
-      <div style="align-self:flex-end;"><button class="secondary" id="sessPrefillBtn">Pre-remplir</button></div>
+      <div><label>Evenement *</label><select id="sessFromEventSelect"></select></div>
+      <div><label>Tache du calendrier (seance)</label><select id="sessFromTaskSelect"></select></div>
+      <div style="align-self:flex-end;"><button class="secondary" id="sessPrefillBtn">Pre-remplir date/seance</button></div>
     </div>
   </div>
 
@@ -493,8 +494,8 @@ body.auth-locked #authGate{ display:flex; }
         <input type="date" id="f_date">
       </div>
       <div>
-        <label>Circuit</label>
-        <select id="f_circuit"></select>
+        <label>Circuit (depuis l'evenement)</label>
+        <div class="f_readout" id="f_circuitInfo">Choisissez un evenement ci-dessus</div>
       </div>
       <div>
         <label>Nombre de tours</label>
@@ -570,8 +571,15 @@ body.auth-locked #authGate{ display:flex; }
  </div><!-- /modal-dialog -->
 </div><!-- /modal-overlay -->
 
-<!-- TAB: ETAT DES PIECES -->
-<section class="tab" id="tab-parts">
+<!-- TAB: VOITURE (etat des pieces / stock / buildsheet) -->
+<section class="tab" id="tab-voiture">
+  <div class="subtabs" id="voitureSubtabs">
+    <button data-vsub="parts" class="active">Etat des pieces</button>
+    <button data-vsub="stock">Stock</button>
+    <button data-vsub="buildsheet">Buildsheet</button>
+  </div>
+
+  <div class="voiture-sub active" id="vsub-parts">
   <div class="home-grid">
     <div class="card home-box replace-box">
       <h4>Pieces a remplacer <span class="count-badge" id="homeReplaceCount">0</span></h4>
@@ -607,42 +615,9 @@ body.auth-locked #authGate{ display:flex; }
       </table>
     </div>
   </div>
-</section>
-
-<!-- TAB: HISTORIQUE SESSIONS -->
-<section class="tab" id="tab-historique">
-  <div class="subtabs" id="historiqueSubtabs">
-    <button data-hsub="sessions" class="active">Sessions</button>
-    <button data-hsub="changes">Changements</button>
   </div>
 
-  <div class="card historique-sub active" id="hsub-sessions">
-    <div class="tablewrap">
-      <table id="sessionsTable">
-        <thead><tr>
-          <th>Date</th><th>Circuit</th><th>Tours</th><th>Km</th><th>Pilote</th><th>Championnat</th>
-          <th>Numero</th><th>Seance</th><th>Run</th><th>Casse</th><th>Note</th>
-        </tr></thead>
-        <tbody id="sessionsTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="card historique-sub" id="hsub-changes">
-    <div class="tablewrap">
-      <table id="changesTable">
-        <thead><tr>
-          <th>Date</th><th>Timing</th><th>Code</th><th>Piece</th><th>Km a l'echange</th>
-          <th>Session liee</th><th>Note</th>
-        </tr></thead>
-        <tbody id="changesTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-</section>
-
-<!-- TAB: STOCK -->
-<section class="tab" id="tab-stock">
+  <div class="voiture-sub" id="vsub-stock">
   <div class="card">
     <p class="small">Chaque categorie (pneus, planches, plaquettes, disques, cloches, embrayage, nez, boites...) peut contenir plusieurs pieces physiques. Chacune a un statut : <b>Jetee</b>, <b>Atelier</b>, <b>Voiture</b> ou <b>Camion</b>. Les categories avec suivi km cumulent automatiquement le kilometrage des sessions tant que la piece est marquee "Voiture".</p>
     <div class="subtabs" id="stockGroupTabs"></div>
@@ -810,10 +785,9 @@ body.auth-locked #authGate{ display:flex; }
       <div style="align-self:flex-end;"><button class="danger" id="delCatBtn">Supprimer la categorie</button></div>
     </div>
   </div>
-</section>
+  </div>
 
-<!-- TAB: BUILDSHEET -->
-<section class="tab" id="tab-buildsheet">
+  <div class="voiture-sub" id="vsub-buildsheet">
   <div class="card">
     <div class="flex-between">
       <h3>Configuration actuelle de la voiture</h3>
@@ -821,20 +795,37 @@ body.auth-locked #authGate{ display:flex; }
     </div>
     <div id="buildsheetContent"></div>
   </div>
+  </div>
 </section>
 
-<!-- TAB: CIRCUITS -->
-<section class="tab" id="tab-circuits">
-  <div class="card">
-    <p class="small">Distances de reference (km/tour). Modifiables a tout moment ; utilisees pour le calcul automatique du kilometrage.</p>
-    <table id="circuitsTable">
-      <thead><tr><th>Circuit</th><th>Km / tour</th><th>Note</th></tr></thead>
-      <tbody id="circuitsTableBody"></tbody>
-    </table>
-    <div class="row" style="margin-top:14px;">
-      <div><label>Nouveau circuit</label><input id="newCircuitName" placeholder="Nom du circuit"></div>
-      <div><label>Km/tour</label><input id="newCircuitKm" type="number" step="0.001"></div>
-      <div style="align-self:flex-end;"><button class="secondary" id="addCircuitBtn">Ajouter</button></div>
+<!-- TAB: HISTORIQUE SESSIONS -->
+<section class="tab" id="tab-historique">
+  <div class="subtabs" id="historiqueSubtabs">
+    <button data-hsub="sessions" class="active">Sessions</button>
+    <button data-hsub="changes">Changements</button>
+  </div>
+
+  <div class="card historique-sub active" id="hsub-sessions">
+    <div class="tablewrap">
+      <table id="sessionsTable">
+        <thead><tr>
+          <th>Date</th><th>Circuit</th><th>Tours</th><th>Km</th><th>Pilote</th><th>Championnat</th>
+          <th>Numero</th><th>Seance</th><th>Run</th><th>Casse</th><th>Note</th>
+        </tr></thead>
+        <tbody id="sessionsTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card historique-sub" id="hsub-changes">
+    <div class="tablewrap">
+      <table id="changesTable">
+        <thead><tr>
+          <th>Date</th><th>Timing</th><th>Code</th><th>Piece</th><th>Km a l'echange</th>
+          <th>Session liee</th><th>Note</th>
+        </tr></thead>
+        <tbody id="changesTableBody"></tbody>
+      </table>
     </div>
   </div>
 </section>
@@ -856,6 +847,7 @@ body.auth-locked #authGate{ display:flex; }
       <div style="flex:2;"><label>Intitule</label><input id="calNewLabel" placeholder="ex: Manche Silverstone"></div>
       <div><label>Lieu</label><input id="calNewLocation" placeholder="ex: Silverstone, UK"></div>
       <div><label>Pays (code ISO 2 lettres)</label><input id="calNewCountry" maxlength="2" placeholder="ex: FR, ES, GB..." style="text-transform:uppercase;"></div>
+      <div><label>Longueur circuit (km/tour)</label><input id="calNewCircuitKm" type="number" step="0.001" min="0" placeholder="ex: 4.318"></div>
       <div style="align-self:flex-end;"><button class="secondary" id="calAddBtn">Ajouter</button></div>
     </div>
   </div>
@@ -2746,6 +2738,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       document.body.style.overflow = 'hidden';
       const sm = document.getElementById('submitMsg'); if(sm) sm.textContent = '';
       try{ if(typeof renderChangeTable === 'function') renderChangeTable(); }catch(e){}
+      try{ if(typeof updateKmPreview === 'function') updateKmPreview(); }catch(e){}
     }
     function closeModal(){
       modal.classList.remove('open');
@@ -2766,6 +2759,22 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       btn.classList.add('active');
       document.getElementById('hsub-'+btn.dataset.hsub).classList.add('active');
     });
+  });
+
+  // ---------- SOUS-ONGLETS VOITURE (pieces / stock / buildsheet) ----------
+  function showVoitureSub(which){
+    document.querySelectorAll('#voitureSubtabs button').forEach(b=>b.classList.toggle('active', b.dataset.vsub===which));
+    document.querySelectorAll('.voiture-sub').forEach(s=>s.classList.remove('active'));
+    const panel = document.getElementById('vsub-'+which);
+    if(panel) panel.classList.add('active');
+    try{
+      if(which==='parts' && typeof renderPartsTable==='function') renderPartsTable();
+      else if(which==='stock' && typeof renderStockTab==='function') renderStockTab();
+      else if(which==='buildsheet' && typeof renderBuildsheet==='function') renderBuildsheet();
+    }catch(e){}
+  }
+  document.querySelectorAll('#voitureSubtabs button').forEach(btn=>{
+    btn.addEventListener('click', ()=> showVoitureSub(btn.dataset.vsub));
   });
 
   // ---------- HEADER / ALERTS ----------
@@ -3026,7 +3035,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       return '<div class="cal-item'+(isNext?' is-next':'')+(isPast?' is-past':'')+'" data-id="'+ev.id+'">'+
         '<div class="cal-item-header">'+
           '<div class="cal-date-box"><div class="cd-day">'+d.getDate()+'</div><div class="cd-month">'+monthNames[d.getMonth()]+'</div></div>'+
-          '<div class="cal-info"><div class="ci-title">'+(flagEmoji(ev.country)?flagEmoji(ev.country)+' ':'')+ev.label+'</div><div class="ci-meta">'+(ev.location||'')+'</div></div>'+
+          '<div class="cal-info"><div class="ci-title">'+(flagEmoji(ev.country)?flagEmoji(ev.country)+' ':'')+ev.label+'</div><div class="ci-meta">'+(ev.location||'')+'</div>'+
+            '<div class="ci-meta">Circuit : <input type="number" step="0.001" min="0" class="calCircuitKmField" data-id="'+ev.id+'" value="'+(ev.circuitKm!=null&&ev.circuitKm!==''?ev.circuitKm:'')+'" placeholder="km/tour" style="width:88px;padding:2px 6px;font-size:12px;"> km/tour</div></div>'+
           '<div class="cal-countdown">'+countdown+'</div>'+
           '<div class="cal-reminder">'+
             (contactOptions ? '<select class="calContactSelect" data-id="'+ev.id+'">'+contactOptions+'</select><button class="wa-btn calWaBtn" data-id="'+ev.id+'">Rappel WhatsApp</button>' : '<span class="small">Ajoutez un contact ci-dessous</span>') +
@@ -3052,6 +3062,12 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       btn.addEventListener('click', ()=>{
         STATE.mlmcEvents = STATE.mlmcEvents.filter(e=>e.id!==Number(btn.dataset.id));
         saveState();
+      });
+    });
+    document.querySelectorAll('.calCircuitKmField').forEach(inp=>{
+      inp.addEventListener('change', (e)=>{
+        const ev = STATE.mlmcEvents.find(ev=>ev.id===Number(e.target.dataset.id));
+        if(ev){ ev.circuitKm = Number(e.target.value)||0; saveState(); }
       });
     });
     document.querySelectorAll('.calWaBtn').forEach(btn=>{
@@ -3142,11 +3158,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const country = document.getElementById('calNewCountry').value.trim().toUpperCase();
     if(!date || !label) return;
     const nextId = (STATE.mlmcEvents.reduce((m,e)=>Math.max(m,e.id),0)) + 1;
-    STATE.mlmcEvents.push({id:nextId, date, label, location, country});
+    const circuitKm = Number(document.getElementById('calNewCircuitKm').value)||0;
+    STATE.mlmcEvents.push({id:nextId, date, label, location, country, circuitKm});
     document.getElementById('calNewDate').value = '';
     document.getElementById('calNewLabel').value = '';
     document.getElementById('calNewLocation').value = '';
     document.getElementById('calNewCountry').value = '';
+    document.getElementById('calNewCircuitKm').value = '';
     saveState();
   });
 
@@ -3162,12 +3180,14 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   });
 
   // ---------- SESSION FORM ----------
-  function fillCircuitSelect(){
-    const sel = document.getElementById('f_circuit');
-    const current = sel.value;
-    sel.innerHTML = Object.keys(STATE.circuits).map(c=>'<option value="'+c+'">'+c+'</option>').join('');
-    if(current) sel.value = current;
-    updateKmPreview();
+  function selectedSessionEvent(){
+    const sel = document.getElementById('sessFromEventSelect');
+    if(!sel) return null;
+    return (STATE.mlmcEvents||[]).find(e=>String(e.id)===String(sel.value)) || null;
+  }
+  function sessionCircuitName(ev){
+    if(!ev) return '';
+    return circuitGuessFromLocation(ev.location) || ev.location || ev.label || '';
   }
 
   function fillDatalists(){
@@ -3178,14 +3198,19 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
 
   function updateKmPreview(){
-    const circuit = document.getElementById('f_circuit').value;
+    const ev = selectedSessionEvent();
     const tours = Number(document.getElementById('f_tours').value)||0;
-    const kmLap = (STATE.circuits[circuit] && STATE.circuits[circuit].km) || 0;
+    const kmLap = ev ? (Number(ev.circuitKm)||0) : 0;
     const km = round3(tours*kmLap);
     document.getElementById('f_kmpreview').textContent = km.toLocaleString('fr-FR') + ' km';
+    const info = document.getElementById('f_circuitInfo');
+    if(info){
+      if(!ev) info.textContent = "Choisissez un evenement ci-dessus";
+      else if(kmLap>0) info.textContent = sessionCircuitName(ev) + ' - ' + kmLap.toLocaleString('fr-FR') + ' km/tour';
+      else info.textContent = sessionCircuitName(ev) + ' - longueur manquante (a renseigner dans le Calendrier)';
+    }
     return km;
   }
-  document.getElementById('f_circuit').addEventListener('change', updateKmPreview);
   document.getElementById('f_tours').addEventListener('input', updateKmPreview);
 
   // change-table state: map partId -> {checked, timing, date, kmOld, note}
@@ -3269,9 +3294,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
   document.getElementById('submitSession').addEventListener('click', ()=>{
     const date = document.getElementById('f_date').value || todayISO();
-    const circuit = document.getElementById('f_circuit').value;
+    const ev = selectedSessionEvent();
+    const circuit = sessionCircuitName(ev);
     const tours = Number(document.getElementById('f_tours').value)||0;
-    const kmLap = (STATE.circuits[circuit] && STATE.circuits[circuit].km) || 0;
+    const kmLap = ev ? (Number(ev.circuitKm)||0) : 0;
     const km = round3(tours*kmLap);
     const pilote = document.getElementById('f_pilote').value;
     const championnat = document.getElementById('f_championnat').value;
@@ -3282,12 +3308,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const note = document.getElementById('f_note').value;
 
     const msg = document.getElementById('submitMsg');
-    if(!circuit || tours<=0){ msg.textContent = 'Merci de renseigner le circuit et un nombre de tours > 0.'; msg.style.color='#e74c3c'; return; }
-    if(kmLap<=0){ msg.textContent = 'La distance de ce circuit est a 0 km/tour - completez-la dans l\'onglet Circuits avant de continuer.'; msg.style.color='#e74c3c'; return; }
+    if(!ev){ msg.textContent = 'Choisissez un evenement du calendrier (il definit le circuit).'; msg.style.color='#e74c3c'; return; }
+    if(tours<=0){ msg.textContent = 'Renseignez un nombre de tours > 0.'; msg.style.color='#e74c3c'; return; }
+    if(kmLap<=0){ msg.textContent = 'Longueur du circuit manquante : renseignez le km/tour de cet evenement dans l\'onglet Calendrier.'; msg.style.color='#e74c3c'; return; }
 
     const changes = Object.entries(changeState).filter(([id,c])=>c.checked).map(([id,c])=>({partId:Number(id), timing:c.timing, date:c.date||date, kmOld:c.kmOld, note:c.note}));
 
-    const session = {date, circuit, tours, km, pilote, championnat, numero, seance, run, casse, note};
+    const session = {date, circuit, tours, km, pilote, championnat, numero, seance, run, casse, note, eventId: ev.id};
     STATE.sessions.unshift(session);
     STATE.totalMileage = round3(STATE.totalMileage + km);
 
@@ -3386,43 +3413,6 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       '<td>'+fmtDate(c.sessionDate)+' - '+(c.sessionCircuit||'')+'</td><td>'+(c.note||'')+'</td></tr>'
     ).join('');
   }
-
-  // ---------- CIRCUITS ----------
-  function renderCircuitsTable(){
-    document.getElementById('circuitsTableBody').innerHTML = Object.entries(STATE.circuits).map(([name,c])=>
-      '<tr data-name="'+name+'">'+
-      '<td><input type="text" class="circuitNameInput" value="'+name.replace(/"/g,'&quot;')+'" style="min-width:120px;"></td>'+
-      '<td><input type="number" step="0.001" min="0" class="circuitKm" value="'+c.km+'"></td>'+
-      '<td><input type="text" class="circuitNoteInput" value="'+(c.note||'').replace(/"/g,'&quot;')+'" style="min-width:220px;"></td></tr>'
-    ).join('');
-  }
-  document.getElementById('circuitsTableBody').addEventListener('change', (e)=>{
-    const tr = e.target.closest('tr');
-    const name = tr.dataset.name;
-    if(e.target.classList.contains('circuitKm')){
-      STATE.circuits[name].km = Number(e.target.value)||0;
-      saveState();
-    } else if(e.target.classList.contains('circuitNoteInput')){
-      STATE.circuits[name].note = e.target.value;
-      saveState();
-    } else if(e.target.classList.contains('circuitNameInput')){
-      const newName = e.target.value.trim();
-      if(!newName || newName===name) { e.target.value = name; return; }
-      if(STATE.circuits[newName]){ alert('Un circuit "'+newName+'" existe deja.'); e.target.value = name; return; }
-      STATE.circuits[newName] = STATE.circuits[name];
-      delete STATE.circuits[name];
-      saveState();
-    }
-  });
-  document.getElementById('addCircuitBtn').addEventListener('click', ()=>{
-    const name = document.getElementById('newCircuitName').value.trim();
-    const km = Number(document.getElementById('newCircuitKm').value)||0;
-    if(!name) return;
-    STATE.circuits[name] = {km, note:'ajoute manuellement'};
-    document.getElementById('newCircuitName').value='';
-    document.getElementById('newCircuitKm').value='';
-    saveState();
-  });
 
   // ---------- IMPORT / EXPORT ----------
   document.getElementById('exportJsonBtn').addEventListener('click', ()=>{
@@ -3631,13 +3621,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function goToMeasures(group){
     document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
     document.querySelectorAll('section.tab').forEach(s=>s.classList.remove('active'));
-    const navBtn = document.querySelector('nav.tabs button[data-tab="stock"]');
+    const navBtn = document.querySelector('nav.tabs button[data-tab="voiture"]');
     if(navBtn) navBtn.classList.add('active');
-    const stockSection = document.getElementById('tab-stock');
-    if(stockSection) stockSection.classList.add('active');
+    const voitureSection = document.getElementById('tab-voiture');
+    if(voitureSection) voitureSection.classList.add('active');
     activeStockGroup = group;
     activeStockView = 'measures';
-    renderStockTab();
+    if(typeof showVoitureSub==='function') showVoitureSub('stock'); else renderStockTab();
   }
 
   function fillTodoAssigneeSelect(){
@@ -4165,7 +4155,12 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function wireSessPrefillEvents(){
     const evtSel = document.getElementById('sessFromEventSelect');
     const prefillBtn = document.getElementById('sessPrefillBtn');
-    if(evtSel) evtSel.addEventListener('change', fillSessFromTaskSelect);
+    if(evtSel) evtSel.addEventListener('change', ()=>{
+      fillSessFromTaskSelect();
+      const ev = selectedSessionEvent();
+      if(ev) document.getElementById('f_date').value = ev.date;
+      updateKmPreview();
+    });
     if(prefillBtn) prefillBtn.addEventListener('click', ()=>{
       const ev = (STATE.mlmcEvents||[]).find(e=>String(e.id)===String(evtSel.value));
       if(!ev){ alert('Choisissez un evenement du calendrier.'); return; }
@@ -4173,11 +4168,6 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const task = ev.tasks && ev.tasks.find(t=>String(t.id)===String(taskSel.value));
       const date = task ? task.date : ev.date;
       document.getElementById('f_date').value = date;
-      const circGuess = circuitGuessFromLocation(ev.location);
-      if(circGuess){
-        const circSel = document.getElementById('f_circuit');
-        if(Array.from(circSel.options).some(o=>o.value===circGuess)) circSel.value = circGuess;
-      }
       if(task){
         const seanceGuess = seanceGuessFromText(task.text);
         if(seanceGuess){
@@ -4281,14 +4271,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     renderSessionClock();
     renderTodoTab();
     renderCalendarTab();
-    fillCircuitSelect();
     fillSessFromEventSelect();
     fillDatalists();
+    updateKmPreview();
     renderChangeTable();
     renderPartsTable();
     renderSessionsTable();
     renderChangesTable();
-    renderCircuitsTable();
     renderStockTab();
     renderBuildsheet();
   }
