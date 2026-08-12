@@ -280,6 +280,13 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .setup-compare-table td{padding:4px 8px;border-bottom:1px solid var(--border);}
 .setup-diff-row{background:rgba(192,57,43,0.15);}
 .setup-diff-row td{font-weight:600;}
+.setup-hist-scroll{overflow-x:auto;margin-top:12px;border:1px solid var(--border);border-radius:8px;}
+.setup-hist-cols{font-size:11px;min-width:100%;}
+.setup-hist-cols th{text-align:left;padding:6px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);vertical-align:top;white-space:nowrap;}
+.setup-hist-cols td{padding:4px 8px;border-bottom:1px solid var(--border);white-space:nowrap;}
+.setup-hist-cols td.setup-label{color:var(--muted);position:sticky;left:0;background:var(--panel);z-index:1;}
+.setup-hist-cols th:first-child{position:sticky;left:0;background:var(--panel);z-index:2;}
+.setup-cell-changed{background:var(--accent-soft);color:#fff;font-weight:700;}
 .wm-delta-up{color:var(--due2);font-weight:700;}
 .wm-delta-down{color:var(--ok, #2ecc71);font-weight:700;}
 .brake-summary-wrap{margin-bottom:20px;overflow-x:auto;}
@@ -392,6 +399,7 @@ body.auth-locked #authGate{ display:flex; }
   <button data-tab="todo">To Do</button>
   <button data-tab="voiture">Voiture</button>
   <button data-tab="historique">Historique</button>
+  <button data-tab="setup">Setup</button>
   <button data-tab="calendar">Calendrier MLMC</button>
   <button data-tab="io">Import / Export</button>
 </nav>
@@ -815,6 +823,11 @@ body.auth-locked #authGate{ display:flex; }
       </table>
     </div>
   </div>
+</section>
+
+<!-- TAB: SETUP -->
+<section class="tab" id="tab-setup">
+  <div class="card" id="setupTabCard"></div>
 </section>
 
 <!-- TAB: CALENDRIER MLMC -->
@@ -3862,13 +3875,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     return rows;
   }
 
-  function renderSetupEditView(container){
-    const taskKey = selectedTodoContext.taskKey;
+  function renderSetupEditView(container, taskKey, readOnly){
     if(!taskKey){
-      container.innerHTML = '<div class="small">Selectionnez une tache/seance prevue en haut de page pour voir/editer son setup.</div>';
+      container.innerHTML = '<div class="small">Selectionnez une session/seance ci-dessus pour '+(readOnly?'voir':'voir/editer')+' son setup.</div>';
       return;
     }
     const entry = getSetupEntry(taskKey);
+    const ro = readOnly ? ' readonly' : '';
     let html = '<div class="setup-banner">MECHANICAL SET-UP</div>';
     html += '<div class="setup-corners-grid" style="margin-top:12px;">';
     SETUP_CORNERS.forEach(c=>{
@@ -3878,8 +3891,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       SETUP_FIELDS.forEach(f=>{
         const v = entry.corners[c.key][f.key];
         html += '<tr><td class="setup-label">'+f.label+(f.unit?' ['+f.unit+']':'')+'</td>'+
-          '<td><input type="text" class="setupFieldInput" data-corner="'+c.key+'" data-field="'+f.key+'" data-sub="target" value="'+(v.target||'').replace(/"/g,'&quot;')+'"></td>'+
-          '<td><input type="text" class="setupFieldInput" data-corner="'+c.key+'" data-field="'+f.key+'" data-sub="actual" value="'+(v.actual||'').replace(/"/g,'&quot;')+'"></td></tr>';
+          '<td><input type="text"'+ro+' class="setupFieldInput" data-corner="'+c.key+'" data-field="'+f.key+'" data-sub="target" value="'+(v.target||'').replace(/"/g,'&quot;')+'"></td>'+
+          '<td><input type="text"'+ro+' class="setupFieldInput" data-corner="'+c.key+'" data-field="'+f.key+'" data-sub="actual" value="'+(v.actual||'').replace(/"/g,'&quot;')+'"></td></tr>';
       });
       html += '</tbody></table></div>';
     });
@@ -3888,36 +3901,37 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     html += '<div class="setup-shared-grid">';
     html += '<div class="setup-shared-box"><h5>Plank / 3rd Element / Aero</h5>';
     SETUP_SHARED_FIELDS.forEach(f=>{
-      html += '<div class="setup-field-row"><label>'+f.label+'</label><input type="text" class="setupSharedInput" data-field="'+f.key+'" value="'+(entry.shared[f.key]||'').replace(/"/g,'&quot;')+'"></div>';
+      html += '<div class="setup-field-row"><label>'+f.label+'</label><input type="text"'+ro+' class="setupSharedInput" data-field="'+f.key+'" value="'+(entry.shared[f.key]||'').replace(/"/g,'&quot;')+'"></div>';
     });
     html += '</div>';
     html += '<div class="setup-shared-box"><h5>Homologation / Poids / Resultats</h5>';
     html += '<table class="setup-weights-table"><tbody>';
     SETUP_WEIGHTS_FIELDS.forEach(f=>{
-      html += '<tr><td class="setup-label">'+f.label+'</td><td><input type="text" class="setupWeightInput" data-field="'+f.key+'" value="'+(entry.weights[f.key]||'').replace(/"/g,'&quot;')+'"></td></tr>';
+      html += '<tr><td class="setup-label">'+f.label+'</td><td><input type="text"'+ro+' class="setupWeightInput" data-field="'+f.key+'" value="'+(entry.weights[f.key]||'').replace(/"/g,'&quot;')+'"></td></tr>';
     });
     html += '</tbody></table></div>';
     html += '</div>';
 
     container.innerHTML = html;
+    if(readOnly) return;
 
-    document.querySelectorAll('.setupFieldInput').forEach(inp=>{
+    container.querySelectorAll('.setupFieldInput').forEach(inp=>{
       inp.addEventListener('change', (e)=>{
-        const en = getSetupEntry(selectedTodoContext.taskKey);
+        const en = getSetupEntry(taskKey);
         en.corners[e.target.dataset.corner][e.target.dataset.field][e.target.dataset.sub] = e.target.value;
         saveState();
       });
     });
-    document.querySelectorAll('.setupSharedInput').forEach(inp=>{
+    container.querySelectorAll('.setupSharedInput').forEach(inp=>{
       inp.addEventListener('change', (e)=>{
-        const en = getSetupEntry(selectedTodoContext.taskKey);
+        const en = getSetupEntry(taskKey);
         en.shared[e.target.dataset.field] = e.target.value;
         saveState();
       });
     });
-    document.querySelectorAll('.setupWeightInput').forEach(inp=>{
+    container.querySelectorAll('.setupWeightInput').forEach(inp=>{
       inp.addEventListener('change', (e)=>{
-        const en = getSetupEntry(selectedTodoContext.taskKey);
+        const en = getSetupEntry(taskKey);
         en.weights[e.target.dataset.field] = e.target.value;
         saveState();
       });
@@ -3925,41 +3939,63 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
 
   function renderSetupHistoryView(container){
-    const rows = Object.keys(STATE.setupData).map(k=>{
+    const items = Object.keys(STATE.setupData).map(k=>{
       const found = findTodoTask(k);
       if(!found) return null;
-      const circ = circuitGuessFromLocation(found.ev.location);
-      return {key:k, date:found.task.date, circuit:circ||'-', eventLabel:found.ev.label, taskLabel:found.task.text};
-    }).filter(Boolean).sort((a,b)=> a.date<b.date?1:-1);
+      return {key:k, ev:found.ev, task:found.task,
+        circuit: circuitGuessFromLocation(found.ev.location) || found.ev.location || found.ev.label,
+        evLabel: found.ev.label, evDate: found.ev.date, taskText: found.task.text, taskDate: found.task.date};
+    }).filter(Boolean);
 
-    if(!rows.length){ container.innerHTML = '<div class="small">Aucun setup enregistre pour le moment.</div>'; return; }
+    if(!items.length){ container.innerHTML = '<div class="small">Aucun setup enregistre pour le moment. Renseignez un setup dans l\'onglet Editer.</div>'; return; }
 
-    const circuits = Array.from(new Set(rows.map(r=>r.circuit))).sort();
-    const filterVal = document.getElementById('setupHistCircuitFilter') ? document.getElementById('setupHistCircuitFilter').value : '';
+    // Filtre par evenement
+    const eventsMap = new Map(items.map(i=>[String(i.ev.id), i.evLabel]));
+    const filterVal = document.getElementById('setupHistEventFilter') ? document.getElementById('setupHistEventFilter').value : '';
+    let shown = filterVal ? items.filter(i=>String(i.ev.id)===String(filterVal)) : items.slice();
+    // Tri par evenement (date) puis par date/heure de tache
+    shown.sort((a,b)=>{
+      const ka = (a.evDate||'')+'#'+(a.taskDate||'')+'#'+(a.task.startTime||'');
+      const kb = (b.evDate||'')+'#'+(b.taskDate||'')+'#'+(b.task.startTime||'');
+      return ka<kb?-1:(ka>kb?1:0);
+    });
 
-    let html = '<div class="row"><div><label>Filtrer par circuit</label><select id="setupHistCircuitFilter">'+
-      '<option value="">Tous</option>'+circuits.map(c=>'<option value="'+c+'" '+(filterVal===c?'selected':'')+'>'+c+'</option>').join('')+
-      '</select></div></div>';
+    const paramLabels = collectSetupFieldRows(null).map(r=>r.label);
+    const cols = shown.map(i=>({ i, rows: collectSetupFieldRows(STATE.setupData[i.key]) }));
 
-    const filteredRows = filterVal ? rows.filter(r=>r.circuit===filterVal) : rows;
+    let html = '<div class="row"><div><label>Filtrer par evenement</label><select id="setupHistEventFilter">'+
+      '<option value="">Tous les evenements</option>'+
+      Array.from(eventsMap.entries()).map(([id,lab])=>'<option value="'+id+'" '+(String(filterVal)===String(id)?'selected':'')+'>'+lab+'</option>').join('')+
+      '</select></div><div style="align-self:flex-end;"><span class="small">Cellule surlignee = valeur differente du setup a gauche.</span></div></div>';
 
-    html += '<table class="setup-history-table"><thead><tr><th>Date</th><th>Circuit</th><th>Evenement</th><th>Tache</th><th></th></tr></thead><tbody>'+
-      filteredRows.map(r=>'<tr><td>'+fmtDate(r.date)+'</td><td>'+r.circuit+'</td><td>'+r.eventLabel+'</td><td>'+r.taskLabel+'</td>'+
-        '<td><button class="secondary setupHistLoadBtn" data-key="'+r.key+'">Charger</button></td></tr>').join('')+
-      '</tbody></table>';
+    html += '<div class="setup-hist-scroll"><table class="setup-history-table setup-hist-cols"><thead><tr><th>Parametre</th>'+
+      cols.map(c=>'<th>'+fmtDate(c.i.taskDate)+'<div class="small">'+c.i.circuit+' - '+(c.i.taskText||'')+'</div>'+
+        '<button class="secondary setupHistOpenBtn" data-key="'+c.i.key+'" style="margin-top:4px;padding:3px 8px;font-size:11px;">Ouvrir</button></th>').join('')+
+      '</tr></thead><tbody>';
+
+    paramLabels.forEach((label, idx)=>{
+      if(cols.every(c=>!c.rows[idx].raw)) return; // ligne entierement vide -> masquee
+      html += '<tr><td class="setup-label">'+label+'</td>';
+      cols.forEach((c,ci)=>{
+        const raw = c.rows[idx].raw;
+        const changed = ci>0 && raw!==cols[ci-1].rows[idx].raw;
+        html += '<td'+(changed?' class="setup-cell-changed"':'')+'>'+c.rows[idx].value+'</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
 
     container.innerHTML = html;
 
-    const filterSel = document.getElementById('setupHistCircuitFilter');
+    const filterSel = document.getElementById('setupHistEventFilter');
     if(filterSel) filterSel.addEventListener('change', ()=>{ renderSetupHistoryView(container); });
-    document.querySelectorAll('.setupHistLoadBtn').forEach(btn=>{
+    container.querySelectorAll('.setupHistOpenBtn').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const key = btn.dataset.key;
-        const eventId = key.split('::')[0];
-        selectedTodoContext.eventId = eventId;
-        selectedTodoContext.taskKey = key;
+        selectedSetupContext.eventId = key.split('::')[0];
+        selectedSetupContext.taskKey = key;
         activeSetupView = 'edit';
-        renderTodoTab();
+        renderSetupTabPage();
       });
     });
   }
@@ -4010,7 +4046,57 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!sub) return;
     if(activeSetupView==='history') renderSetupHistoryView(sub);
     else if(activeSetupView==='compare') renderSetupCompareView(sub);
-    else renderSetupEditView(sub);
+    else renderSetupEditView(sub, selectedSetupContext.taskKey, false);
+  }
+
+  // ===== NOUVEL ONGLET SETUP (dedie, protege par mot de passe) =====
+  let selectedSetupContext = {eventId:'', taskKey:''};
+
+  function renderSetupTabPage(){
+    const card = document.getElementById('setupTabCard');
+    if(!card) return;
+    if(STATE.setupPassword && !setupUnlocked){
+      card.innerHTML = renderSetupLockScreen();
+      wireSetupLockScreen();
+      return;
+    }
+    card.innerHTML =
+      '<div class="measure-context-row">'+
+        '<label>Evenement <select id="setupEventSelect">'+eventSelectOptions(selectedSetupContext.eventId)+'</select></label>'+
+        '<label>Session / seance <select id="setupTaskSelect">'+todoTaskSelectOptions(selectedSetupContext.eventId, selectedSetupContext.taskKey)+'</select></label>'+
+      '</div>'+
+      renderSetupSubNav()+
+      '<div id="setupSubContent"></div>';
+    const taskSel = document.getElementById('setupTaskSelect');
+    if(taskSel && taskSel.value !== selectedSetupContext.taskKey) selectedSetupContext.taskKey = taskSel.value;
+    wireSetupTabSelectors();
+    wireSetupSubNav();
+    renderSetupSubContent();
+  }
+
+  function wireSetupTabSelectors(){
+    const evSel = document.getElementById('setupEventSelect');
+    const tkSel = document.getElementById('setupTaskSelect');
+    if(evSel) evSel.addEventListener('change', (e)=>{
+      selectedSetupContext.eventId = e.target.value;
+      if(tkSel){
+        tkSel.innerHTML = todoTaskSelectOptions(selectedSetupContext.eventId, '');
+        selectedSetupContext.taskKey = tkSel.value;
+      }
+      renderSetupSubContent();
+    });
+    if(tkSel) tkSel.addEventListener('change', (e)=>{
+      selectedSetupContext.taskKey = e.target.value;
+      renderSetupSubContent();
+    });
+  }
+
+  // Vue lecture seule du setup dans le To Do (pour les mecanos)
+  function renderSetupReadonlyForTodo(){
+    const box = document.getElementById('todoSetupContent');
+    if(!box) return;
+    box.innerHTML = '<div class="small" style="margin-bottom:10px;">Setup de la session (lecture seule). L\'edition, l\'historique et la comparaison se font dans l\'onglet <b>Setup</b>.</div><div id="todoSetupRO"></div>';
+    renderSetupEditView(document.getElementById('todoSetupRO'), selectedTodoContext.taskKey, true);
   }
 
   function renderSetupLockScreen(){
@@ -4026,7 +4112,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const btn = document.getElementById('setupUnlockBtn');
     const inp = document.getElementById('setupPasswordInput');
     const tryUnlock = ()=>{
-      if(inp.value === STATE.setupPassword){ setupUnlocked = true; renderSetupTab(); }
+      if(inp.value === STATE.setupPassword){ setupUnlocked = true; renderSetupTabPage(); }
       else { const err = document.getElementById('setupPasswordError'); if(err) err.textContent = 'Mot de passe incorrect.'; }
     };
     if(btn) btn.addEventListener('click', tryUnlock);
@@ -4071,19 +4157,6 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     });
   }
 
-  function renderSetupTab(){
-    const box = document.getElementById('todoSetupContent');
-    if(!box) return;
-    if(STATE.setupPassword && !setupUnlocked){
-      box.innerHTML = renderSetupLockScreen();
-      wireSetupLockScreen();
-      return;
-    }
-    box.innerHTML = renderSetupSubNav() + '<div id="setupSubContent"></div>';
-    wireSetupSubNav();
-    renderSetupSubContent();
-  }
-
   function renderTodoTab(){
     const evtSel = document.getElementById('todoEventSelect');
     if(!evtSel) return;
@@ -4107,7 +4180,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(isSetup && tplCard) tplCard.style.display = 'none';
 
     if(isSetup){
-      renderSetupTab();
+      renderSetupReadonlyForTodo();
     } else {
       renderTodoTaskList();
       fillTodoAssigneeSelect();
@@ -4265,6 +4338,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     renderSessionClock();
     renderTodoTab();
     renderCalendarTab();
+    renderSetupTabPage();
     fillSessFromEventSelect();
     fillDatalists();
     updateKmPreview();
