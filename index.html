@@ -235,6 +235,8 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-laps td.rs-fuel{font-weight:600;color:var(--accent);}
 .rs-lap-del{background:transparent;border:none;color:var(--due2);cursor:pointer;font-size:15px;}
 .rs-tyre-table{margin-top:8px;}
+.rs-tyre-table tr.compound-slick td{background:rgba(155,89,182,0.18);}
+.rs-tyre-table tr.compound-wet td{background:rgba(241,196,15,0.15);}
 .rs-tyre-table select{width:100%;padding:3px 4px;font-size:12px;background:transparent;border:1px solid transparent;}
 .rs-tyre-table select:focus{background:var(--panel2);border-color:var(--border);}
 .rs-tyre-del{background:transparent;border:none;color:var(--due2);cursor:pointer;font-size:15px;}
@@ -588,7 +590,7 @@ body.auth-locked #authGate{ display:flex; }
   <div class="modal-body">
   <div class="card">
     <h3>Evenement (definit circuit, date et seance)</h3>
-    <p class="small">Choisissez l'evenement : sa date remplit automatiquement la date de session, et sa longueur de circuit (km/tour, a renseigner dans l'onglet Calendrier) sert au calcul du kilometrage. Choisissez ensuite la tache/seance : sa date affine la date de session.</p>
+    <p class="small">Choisissez l'evenement : sa date remplit automatiquement la date de session, et sa longueur de circuit (m/tour, a renseigner dans l'onglet Calendrier) sert au calcul du kilometrage. Choisissez ensuite la tache/seance : sa date affine la date de session.</p>
     <div class="row">
       <div><label>Evenement *</label><select id="sessFromEventSelect"></select></div>
       <div><label>Tache / seance</label><select id="sessFromTaskSelect"></select></div>
@@ -977,7 +979,7 @@ body.auth-locked #authGate{ display:flex; }
       <div style="flex:2;"><label>Intitule</label><input id="calNewLabel" placeholder="ex: Manche Silverstone"></div>
       <div><label>Lieu</label><input id="calNewLocation" placeholder="ex: Silverstone, UK"></div>
       <div><label>Pays (code ISO 2 lettres)</label><input id="calNewCountry" maxlength="2" placeholder="ex: FR, ES, GB..." style="text-transform:uppercase;"></div>
-      <div><label>Longueur circuit (km/tour)</label><input id="calNewCircuitKm" type="number" step="0.001" min="0" placeholder="ex: 4.318"></div>
+      <div><label>Longueur circuit (m/tour)</label><input id="calNewCircuitKm" type="number" step="1" min="0" placeholder="ex: 7004"></div>
       <div style="align-self:flex-end;"><button class="secondary" id="calAddBtn">Ajouter</button></div>
     </div>
   </div>
@@ -3306,7 +3308,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       '</div></div>';
 
     // Fuel + pressures box
-    const fuelField=(f)=>'<div class="rs-field"><label>'+f.label+'</label><input type="text" class="rsFuelInput" data-key="'+f.key+'" value="'+esc(r.fuel[f.key])+'"></div>';
+    const cellCap = runSetupCellCapacity(r);
+    const fuelField=(f)=>{ const isStart=f.key==='startFuel'; const lbl=f.label+(isStart&&cellCap!=null?' (max '+cellCap+')':''); return '<div class="rs-field"><label>'+lbl+'</label><input type="text" class="rsFuelInput" data-key="'+f.key+'" value="'+esc(r.fuel[f.key])+'"></div>'; };
     const pressRow=(kind)=> RS_CORNERS.map(c=>'<td><input type="text" class="rsPressInput" data-kind="'+kind+'" data-corner="'+c+'" value="'+esc(r.press[kind][c])+'"></td>').join('');
     let rightBox = '<div class="rs-box"><h5>Carburant</h5><div class="rs-cond-grid" style="grid-template-columns:repeat(2,1fr);">'+RS_FUEL.map(fuelField).join('')+'</div>'+
       '<h5 style="margin-top:12px;">Pressions pneus (bar)</h5>'+
@@ -3328,9 +3331,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // wiring
     const save=()=>saveState();
     box.querySelectorAll('.rsCondInput').forEach(el=>el.addEventListener('change', e=>{ getRunsheet(taskKey).cond[e.target.dataset.key]=e.target.value; save(); }));
-    box.querySelectorAll('.rsFuelInput').forEach(el=>el.addEventListener('change', e=>{ getRunsheet(taskKey).fuel[e.target.dataset.key]=e.target.value; save(); }));
+    box.querySelectorAll('.rsFuelInput').forEach(el=>el.addEventListener('change', e=>{ const r2=getRunsheet(taskKey); if(e.target.dataset.key==='startFuel'){ const cap=runSetupCellCapacity(r2); let v=parseFloat(String(e.target.value).replace(',','.')); if(cap!=null && !isNaN(v) && v>cap){ v=cap; e.target.value=String(cap); alert('Start fuel limite a la cell capacity du setup associe ('+cap+' L).'); } } r2.fuel[e.target.dataset.key]=e.target.value; save(); renderLapsBody(taskKey); }));
     box.querySelectorAll('.rsPressInput').forEach(el=>el.addEventListener('change', e=>{ getRunsheet(taskKey).press[e.target.dataset.kind][e.target.dataset.corner]=e.target.value; save(); }));
-    box.querySelectorAll('.rsMetaInput').forEach(el=>el.addEventListener('change', e=>{ getRunsheet(taskKey)[e.target.dataset.key]=e.target.value; save(); }));
+    box.querySelectorAll('.rsMetaInput').forEach(el=>el.addEventListener('change', e=>{ getRunsheet(taskKey)[e.target.dataset.key]=e.target.value; save(); if(e.target.dataset.key==='setupId') renderRunsheetTab(); }));
     box.querySelectorAll('.rsCommentInput').forEach(el=>el.addEventListener('change', e=>{ getRunsheet(taskKey)[e.target.dataset.key]=e.target.value; save(); }));
     renderLapsBody(taskKey);
     const lapsBody=document.getElementById('rsLapsBody');
@@ -3422,6 +3425,12 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     return code+(comp?' ['+comp+']':'')+(nm?' - '+nm:'');
   }
   function runTyreSetCodes(){ const ev=runEventObj(); const all=Object.keys(groupSetsByCode('tyre')).sort(); return (ev && ev.tyreSets && ev.tyreSets.length) ? ev.tyreSets.map(t=>t.code).filter(c=>all.indexOf(c)>=0) : all; }
+  // Cell capacity (fuel max) du setup associe a la feuille de run
+  function runSetupCellCapacity(r){ if(!r||!r.setupId) return null; const snap=(STATE.setupSnapshots||[]).find(s=>String(s.id)===String(r.setupId)); if(!snap||!snap.shared) return null; const v=parseFloat(String(snap.shared.cellCapacity||'').replace(',','.')); return isNaN(v)?null:v; }
+  // Compound d'un train de pneus (S/W) depuis le stock
+  function tyreSetCompound(code){ const g=groupSetsByCode('tyre')[code]; if(!g) return ''; const items=TYRE_POSITIONS.map(p=>g[p]).filter(Boolean); return (items[0]&&items[0].extra&&items[0].extra.compound)||''; }
+  // Kilometrage (mileage stock) d'un pneu du train a une position donnee
+  function tyreSetKm(code,pos){ const g=groupSetsByCode('tyre')[code]; if(!g||!g[pos]) return null; const v=g[pos].mileage; return (v==null||v==='')?null:v; }
   function runDriverOptions(sel){
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
     const ev=runEventObj();
@@ -3445,30 +3454,37 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     html+='<div class="rs-assign-box"><h5>Pneus de l\'event</h5>'+
       (ev.tyreSets.length ?
         '<div class="rs-laps-wrap"><table class="rs-laps rs-tyre-table"><thead><tr><th>Nom</th><th>Monte</th><th>Set jante</th><th>Km FL</th><th>Km FR</th><th>Km RL</th><th>Km RR</th><th>Notes</th><th></th></tr></thead><tbody>'+
-        ev.tyreSets.map((t,i)=>'<tr data-i="'+i+'">'+
-          '<td style="text-align:left;font-weight:600;">'+esc(tyreSetLabel(t.code))+'</td>'+
-          '<td><input type="checkbox" class="rsTyreMounted" data-i="'+i+'" '+(t.mounted?'checked':'')+'></td>'+
-          '<td><select class="rsTyreF" data-i="'+i+'" data-f="rimSet">'+rimOptsA(t.rimSet)+'</select></td>'+
-          '<td><input type="text" class="rsTyreKm" data-i="'+i+'" data-k="fl" value="'+esc(t.km.fl)+'" style="width:48px;"></td>'+
-          '<td><input type="text" class="rsTyreKm" data-i="'+i+'" data-k="fr" value="'+esc(t.km.fr)+'" style="width:48px;"></td>'+
-          '<td><input type="text" class="rsTyreKm" data-i="'+i+'" data-k="rl" value="'+esc(t.km.rl)+'" style="width:48px;"></td>'+
-          '<td><input type="text" class="rsTyreKm" data-i="'+i+'" data-k="rr" value="'+esc(t.km.rr)+'" style="width:48px;"></td>'+
-          '<td><input type="text" class="rsTyreF" data-i="'+i+'" data-f="notes" value="'+esc(t.notes||'')+'" style="min-width:100px;"></td>'+
-          '<td><button class="rs-tyre-del" data-i="'+i+'" title="Retirer">&times;</button></td>'+
-        '</tr>').join('')+'</tbody></table></div>'
+        ev.tyreSets.map((t,i)=>{
+          const comp=tyreSetCompound(t.code);
+          const cclass = comp==='W'?'compound-wet':(comp==='S'?'compound-slick':'');
+          const mountCell = t.rimSet
+            ? '<input type="checkbox" checked disabled title="Monte (set de jante attribue)">'
+            : '<input type="checkbox" class="rsTyreMounted" data-i="'+i+'" '+(t.mounted?'checked':'')+'>';
+          const kmCell = (pos)=>{ const v=tyreSetKm(t.code,pos); return '<td>'+(v!=null?esc(v):'-')+'</td>'; };
+          return '<tr data-i="'+i+'" class="'+cclass+'">'+
+            '<td style="text-align:left;font-weight:600;">'+esc(tyreSetLabel(t.code))+'</td>'+
+            '<td>'+mountCell+'</td>'+
+            '<td><select class="rsTyreF" data-i="'+i+'" data-f="rimSet">'+rimOptsA(t.rimSet)+'</select></td>'+
+            kmCell('FL')+kmCell('FR')+kmCell('RL')+kmCell('RR')+
+            '<td><input type="text" class="rsTyreF" data-i="'+i+'" data-f="notes" value="'+esc(t.notes||'')+'" style="min-width:100px;"></td>'+
+            '<td><button class="rs-tyre-del" data-i="'+i+'" title="Retirer">&times;</button></td>'+
+          '</tr>';
+        }).join('')+'</tbody></table></div>'
         : '<div class="small">Aucun pneu ajoute.</div>')+
       '<button class="secondary" id="rsAddTyreBtn" style="margin-top:8px;">+ Ajouter des pneus</button></div>';
 
     // Reference conso / laptime (par condition + par pilote)
     if(!ev.refConditions || typeof ev.refConditions!=='object') ev.refConditions={};
     if(!ev.refDrivers || typeof ev.refDrivers!=='object') ev.refDrivers={};
-    const circuitKm = Number(ev.circuitKm)||0;
-    // FCY laptime auto depuis la distance du circuit (dist / 80 km/h)
+    const circuitM = Number(ev.circuitKm)||0; // distance du tour en metres
+    // FCY laptime auto depuis la distance du circuit : metres / 80 km/h * 3.6 = secondes
     ev.refConditions.fcy = ev.refConditions.fcy || {};
-    if(circuitKm>0 && !ev.refConditions.fcy.laptime) ev.refConditions.fcy.laptime=(circuitKm/80*3600).toFixed(1);
+    const fcyAuto = circuitM>0 ? (circuitM/80*3.6).toFixed(1) : '';
+    // (re)calcul auto si vide OU si ancienne valeur auto (ancienne formule km*3600)
+    if(circuitM>0 && (!ev.refConditions.fcy.laptime || ev.refConditions.fcy.laptime===(circuitM/80*3600).toFixed(1))) ev.refConditions.fcy.laptime=fcyAuto;
     const RS_CONDS=[{key:'green',label:'Vert (normal)'},{key:'fcy',label:'FCY (80 km/h)'},{key:'sc',label:'Safety Car'},{key:'wet',label:'Wet'}];
     html+='<div class="rs-assign-box" style="margin-top:14px;"><h5>Reference conso / laptime</h5>';
-    html+='<div class="small" style="margin-bottom:8px;">Distance du tour : <b>'+(circuitKm>0?circuitKm+' km':'non renseignee — a definir dans l\'onglet Calendrier')+'</b>'+(circuitKm>0?' (laptime FCY calcule = distance / 80 km/h)':'')+'</div>';
+    html+='<div class="small" style="margin-bottom:8px;">Distance du tour : <b>'+(circuitM>0?circuitM+' m':'non renseignee — a definir dans l\'onglet Calendrier')+'</b>'+(circuitM>0?' (laptime FCY auto = distance / 80 km/h = '+fcyAuto+' s)':'')+'</div>';
     html+='<div class="rs-ref-grid"><div><b class="rs-ref-title">Par condition</b><table class="rs-press-table"><thead><tr><th>Condition</th><th>Laptime (s)</th><th>Conso (L/tour)</th></tr></thead><tbody>';
     RS_CONDS.forEach(c=>{ const rc=ev.refConditions[c.key]||{}; html+='<tr><td style="text-align:left;">'+c.label+'</td><td><input type="text" class="rsRefCond" data-cond="'+c.key+'" data-f="laptime" value="'+esc(rc.laptime)+'"'+(c.key==='fcy'?' placeholder="auto"':'')+'></td><td><input type="text" class="rsRefCond" data-cond="'+c.key+'" data-f="conso" value="'+esc(rc.conso)+'"></td></tr>'; });
     html+='</tbody></table></div>';
@@ -3482,9 +3498,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(addDriverBtn) addDriverBtn.addEventListener('click', ()=>openDriverPickerModal(ev));
     box.querySelectorAll('.rsRefCond').forEach(inp=>inp.addEventListener('change', e=>{ const c=e.target.dataset.cond; ev.refConditions[c]=ev.refConditions[c]||{}; ev.refConditions[c][e.target.dataset.f]=e.target.value; saveState(); }));
     box.querySelectorAll('.rsRefDriver').forEach(inp=>inp.addEventListener('change', e=>{ const n=e.target.dataset.driver; ev.refDrivers[n]=ev.refDrivers[n]||{}; ev.refDrivers[n][e.target.dataset.f]=e.target.value; saveState(); }));
-    box.querySelectorAll('.rsTyreF').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); if(ev.tyreSets[i]) ev.tyreSets[i][e.target.dataset.f]=e.target.value; saveState(); }));
+    box.querySelectorAll('.rsTyreF').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); if(ev.tyreSets[i]){ ev.tyreSets[i][e.target.dataset.f]=e.target.value; if(e.target.dataset.f==='rimSet' && e.target.value) ev.tyreSets[i].mounted=true; } saveState(); if(e.target.dataset.f==='rimSet') renderRunAccueil(); }));
     box.querySelectorAll('.rsTyreMounted').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); if(ev.tyreSets[i]) ev.tyreSets[i].mounted=e.target.checked; saveState(); }));
-    box.querySelectorAll('.rsTyreKm').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); if(ev.tyreSets[i]) ev.tyreSets[i].km[e.target.dataset.k]=e.target.value; saveState(); }));
     box.querySelectorAll('.rs-tyre-del').forEach(btn=>btn.addEventListener('click', ()=>{ ev.tyreSets.splice(Number(btn.dataset.i),1); saveState(); renderRunAccueil(); }));
     const addTyreBtn=box.querySelector('#rsAddTyreBtn');
     if(addTyreBtn) addTyreBtn.addEventListener('click', ()=>openTyrePickerModal(ev));
@@ -3779,7 +3794,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         '<div class="cal-item-header">'+
           '<div class="cal-date-box"><div class="cd-day">'+d.getDate()+'</div><div class="cd-month">'+monthNames[d.getMonth()]+'</div></div>'+
           '<div class="cal-info"><div class="ci-title">'+(flagEmoji(ev.country)?flagEmoji(ev.country)+' ':'')+ev.label+'</div><div class="ci-meta">'+(ev.location||'')+'</div>'+
-            '<div class="ci-meta">Circuit : <input type="number" step="0.001" min="0" class="calCircuitKmField" data-id="'+ev.id+'" value="'+(ev.circuitKm!=null&&ev.circuitKm!==''?ev.circuitKm:'')+'" placeholder="km/tour" style="width:88px;padding:2px 6px;font-size:12px;"> km/tour</div></div>'+
+            '<div class="ci-meta">Circuit : <input type="number" step="1" min="0" class="calCircuitKmField" data-id="'+ev.id+'" value="'+(ev.circuitKm!=null&&ev.circuitKm!==''?ev.circuitKm:'')+'" placeholder="m/tour" style="width:88px;padding:2px 6px;font-size:12px;"> m/tour</div></div>'+
           '<div class="cal-countdown">'+countdown+'</div>'+
           '<div class="cal-reminder">'+
             (contactOptions ? '<select class="calContactSelect" data-id="'+ev.id+'">'+contactOptions+'</select><button class="wa-btn calWaBtn" data-id="'+ev.id+'">Rappel WhatsApp</button>' : '<span class="small">Ajoutez un contact ci-dessous</span>') +
@@ -3965,13 +3980,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function updateKmPreview(){
     const ev = selectedSessionEvent();
     const tours = Number(document.getElementById('f_tours').value)||0;
-    const kmLap = ev ? (Number(ev.circuitKm)||0) : 0;
-    const km = round3(tours*kmLap);
+    const kmLap = ev ? (Number(ev.circuitKm)||0) : 0; // metres/tour
+    const km = round3(tours*kmLap/1000);
     document.getElementById('f_kmpreview').textContent = km.toLocaleString('fr-FR') + ' km';
     const info = document.getElementById('f_circuitInfo');
     if(info){
       if(!ev) info.textContent = "Choisissez un evenement ci-dessus";
-      else if(kmLap>0) info.textContent = sessionCircuitName(ev) + ' - ' + kmLap.toLocaleString('fr-FR') + ' km/tour';
+      else if(kmLap>0) info.textContent = sessionCircuitName(ev) + ' - ' + kmLap.toLocaleString('fr-FR') + ' m/tour';
       else info.textContent = sessionCircuitName(ev) + ' - longueur manquante (a renseigner dans le Calendrier)';
     }
     return km;
@@ -4062,8 +4077,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const ev = selectedSessionEvent();
     const circuit = sessionCircuitName(ev);
     const tours = Number(document.getElementById('f_tours').value)||0;
-    const kmLap = ev ? (Number(ev.circuitKm)||0) : 0;
-    const km = round3(tours*kmLap);
+    const kmLap = ev ? (Number(ev.circuitKm)||0) : 0; // metres/tour
+    const km = round3(tours*kmLap/1000);
     const pilote = document.getElementById('f_pilote').value;
     const championnat = '';
     const numero = '';
@@ -4075,7 +4090,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const msg = document.getElementById('submitMsg');
     if(!ev){ msg.textContent = 'Choisissez un evenement du calendrier (il definit le circuit).'; msg.style.color='#e74c3c'; return; }
     if(tours<=0){ msg.textContent = 'Renseignez un nombre de tours > 0.'; msg.style.color='#e74c3c'; return; }
-    if(kmLap<=0){ msg.textContent = 'Longueur du circuit manquante : renseignez le km/tour de cet evenement dans l\'onglet Calendrier.'; msg.style.color='#e74c3c'; return; }
+    if(kmLap<=0){ msg.textContent = 'Longueur du circuit manquante : renseignez le m/tour de cet evenement dans l\'onglet Calendrier.'; msg.style.color='#e74c3c'; return; }
 
     const changes = Object.entries(changeState).filter(([id,c])=>c.checked).map(([id,c])=>({partId:Number(id), timing:c.timing, date:c.date||date, kmOld:c.kmOld, note:c.note}));
 
