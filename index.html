@@ -294,6 +294,9 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .setup-corner-table td.setup-target,.setup-weights-table td.setup-target{color:var(--muted);white-space:nowrap;}
 td.releve-diff{background:rgba(230,160,30,0.28);}
 td.releve-diff input{font-weight:700;color:#e6a01e;}
+.setup-releve-table td.setup-target{width:52px;text-align:center;}
+.setup-releve-table td.setup-releve-td{width:74px;}
+.setup-releve-table input.setupReleveInput{width:62px;max-width:62px;}
 .setup-setdown-bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
 .setup-hist-scroll{overflow-x:auto;margin-top:12px;border:1px solid var(--border);border-radius:8px;}
 .setup-hist-cols{font-size:11px;min-width:100%;}
@@ -2835,6 +2838,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         autoSelectTodoContext();
         renderTodoTab();
       }
+      if(btn.dataset.tab==='setup' && typeof autoSelectSetupContext==='function'){
+        autoSelectSetupContext();
+        renderSetupTabPage();
+      }
     });
   });
 
@@ -3682,6 +3689,15 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       activeTodoSession = guessTodoSessionType(next.t.text);
     }
   }
+  // idem pour l'onglet Setup : se positionne sur la prochaine session officielle, modifiable a la main
+  function autoSelectSetupContext(){
+    if(selectedSetupContext.taskKey && !todoTaskEnded(selectedSetupContext.taskKey)) return;
+    const next = findNextOfficialSessionDT();
+    if(next){
+      selectedSetupContext.eventId = String(next.ev.id);
+      selectedSetupContext.taskKey = next.ev.id+'::'+next.t.id;
+    }
+  }
   // renvoie (et cree si besoin) la liste de taches types pour un role + type de seance
   function getTodoTemplateList(role, sess){
     let r = STATE.todoTemplates[role];
@@ -4483,51 +4499,54 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const esc = (x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
     const tval = (x)=>{ const v=cval(x); return (v==null||v==='')?'-':v; };
 
+    // Ligne Parametre | Target (lecture seule) | Releve (input reduit)
+    const releveRow = (label, target, releve, attrs)=>{
+      const diff = setupReleveDiff(target, releve);
+      return '<tr><td class="setup-label">'+label+'</td>'+
+        '<td class="setup-target">'+tval(target)+'</td>'+
+        '<td class="setup-releve-td'+(diff?' releve-diff':'')+'"><input type="text" class="setupReleveInput" '+attrs+' value="'+esc(releve)+'"></td></tr>';
+    };
+    const rHead = '<thead><tr><th>Parametre</th><th>Target</th><th class="releve-col">Releve</th></tr></thead>';
+    const axleReleveBox = (title, axleKeys, thirdTitle, thirdKeys)=>{
+      let rows = '';
+      axleKeys.forEach(key=>{ const f=SHARED_FIELD_BY_KEY[key]; rows += releveRow(f.label+(f.unit?' ['+f.unit+']':''), cval(entry.shared[key]), entry.readings.shared[key]||'', 'data-sec="shared" data-field="'+key+'"'); });
+      rows += '<tr class="setup-subhead"><td colspan="3">'+thirdTitle+'</td></tr>';
+      thirdKeys.forEach(key=>{ const f=SHARED_FIELD_BY_KEY[key]; rows += releveRow(f.label.replace(/^3rd Elem\. (Front|Rear) - /,''), cval(entry.shared[key]), entry.readings.shared[key]||'', 'data-sec="shared" data-field="'+key+'"'); });
+      return '<div class="setup-corner-card"><div class="setup-banner" style="border-radius:0;">'+title+'</div><table class="setup-corner-table setup-releve-table">'+rHead+'<tbody>'+rows+'</tbody></table></div>';
+    };
+
     let html = '';
     html += '<div class="setup-setdown-bar">'+
       '<button class="primary" id="setupSetdownSaveBtn" style="margin-top:0;">Enregistrer le setdown</button>'+
-      '<span class="small">Target = setup prevu (lecture seule). Relevez les valeurs mesurees sur la voiture ; l\'ecart se colore. L\'enregistrement cree une entree <b>Setdown</b> comparable dans l\'onglet Setup.</span>'+
+      '<span class="small">Target = setup prevu (lecture seule). Relevez les valeurs mesurees ; l\'ecart se colore. L\'enregistrement cree une entree <b>Setdown</b> comparable dans l\'onglet Setup.</span>'+
     '</div>';
 
-    html += '<div class="setup-banner">SETDOWN - RELEVE MECANO</div>';
-    html += '<div class="setup-corners-grid" style="margin-top:12px;">';
+    // FRONT
+    html += '<div class="setup-axle-center" style="margin-top:12px;">'+axleReleveBox('FRONT', SETUP_FRONT_AXLE, '3rd Element Front', SETUP_THIRD_FRONT)+'</div>';
+
+    // Roues en sous-sections (Damping / Damper / General)
+    html += '<div class="setup-corners-grid" style="margin-top:16px;">';
     SETUP_CORNERS.forEach(c=>{
-      html += '<div class="setup-corner-card">';
-      html += '<div class="setup-banner" style="border-radius:0;">'+c.label+'</div>';
-      html += '<table class="setup-corner-table"><thead><tr><th>Parametre</th><th>Target</th><th class="releve-col">Releve</th></tr></thead><tbody>';
-      SETUP_FIELDS.forEach(f=>{
-        const target = cval(entry.corners[c.key][f.key]);
-        const releve = entry.readings.corners[c.key][f.key]||'';
-        const diff = setupReleveDiff(target, releve);
-        html += '<tr><td class="setup-label">'+f.label+(f.unit?' ['+f.unit+']':'')+'</td>'+
-          '<td class="setup-target">'+tval(target)+'</td>'+
-          '<td class="'+(diff?'releve-diff':'')+'"><input type="text" class="setupReleveInput" data-sec="corner" data-corner="'+c.key+'" data-field="'+f.key+'" value="'+esc(releve)+'"></td></tr>';
+      let rows = '';
+      SETUP_WHEEL_GROUPS.forEach(g=>{
+        if(g.title) rows += '<tr class="setup-subhead"><td colspan="3">'+g.title+'</td></tr>';
+        g.keys.forEach(k=>{ const f=FIELD_BY_KEY[k]; rows += releveRow(f.label+(f.unit?' ['+f.unit+']':''), cval(entry.corners[c.key][k]), entry.readings.corners[c.key][k]||'', 'data-sec="corner" data-corner="'+c.key+'" data-field="'+k+'"'); });
       });
-      html += '</tbody></table></div>';
+      html += '<div class="setup-corner-card"><div class="setup-banner" style="border-radius:0;">'+c.label+'</div><table class="setup-corner-table setup-releve-table">'+rHead+'<tbody>'+rows+'</tbody></table></div>';
     });
     html += '</div>';
 
-    const sharedTable = (title, fields, sec)=>{
-      let h = '<div class="setup-shared-box"><h5>'+title+'</h5>';
-      h += '<table class="setup-weights-table"><thead><tr><th>Parametre</th><th>Target</th><th class="releve-col">Releve</th></tr></thead><tbody>';
-      fields.forEach(f=>{
-        const target = cval(sec==='shared'?entry.shared[f.key]:entry.weights[f.key]);
-        const releve = (sec==='shared'?entry.readings.shared[f.key]:entry.readings.weights[f.key])||'';
-        const diff = setupReleveDiff(target, releve);
-        h += '<tr><td class="setup-label">'+f.label+'</td>'+
-          '<td class="setup-target">'+tval(target)+'</td>'+
-          '<td class="'+(diff?'releve-diff':'')+'"><input type="text" class="setupReleveInput" data-sec="'+sec+'" data-field="'+f.key+'" value="'+esc(releve)+'"></td></tr>';
-      });
-      return h+'</tbody></table></div>';
-    };
-    html += '<div class="setup-shared-grid">';
-    html += sharedTable('Reglages partages', SETUP_SHARED_FIELDS, 'shared');
-    html += sharedTable('Poids / Resultats', SETUP_WEIGHTS_FIELDS, 'weight');
-    html += '<div class="setup-shared-box"><h5>Conditions (lecture seule)</h5>';
-    SETUP_CONDITION_FIELDS.forEach(f=>{
-      html += '<div class="setup-field-row"><label>'+f.label+'</label><span class="small">'+tval(entry.conditions[f.key])+'</span></div>';
-    });
-    html += '</div>';
+    // REAR
+    html += '<div class="setup-axle-center" style="margin-top:16px;">'+axleReleveBox('REAR', SETUP_REAR_AXLE, '3rd Element Rear', SETUP_THIRD_REAR)+'</div>';
+
+    // Conditions (lecture seule) + Resultats (avec releve)
+    html += '<div class="setup-shared-grid" style="margin-top:16px;">';
+    html += '<div class="setup-shared-box"><h5>Session Conditions (lecture seule)</h5><div class="setup-field-grid">';
+    SETUP_CONDITION_FIELDS.forEach(f=>{ html += '<div class="setup-field-row"><label>'+f.label+'</label><span class="small">'+tval(entry.conditions[f.key])+'</span></div>'; });
+    html += '</div></div>';
+    let wRows = '';
+    SETUP_WEIGHTS_FIELDS.forEach(f=>{ wRows += releveRow(f.label, cval(entry.weights[f.key]), entry.readings.weights[f.key]||'', 'data-sec="weight" data-field="'+f.key+'"'); });
+    html += '<div class="setup-shared-box"><h5>Homologation / Poids / Resultats</h5><table class="setup-corner-table setup-releve-table">'+rHead+'<tbody>'+wRows+'</tbody></table></div>';
     html += '</div>';
 
     box.innerHTML = html;
