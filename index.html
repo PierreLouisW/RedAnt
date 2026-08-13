@@ -185,6 +185,7 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .cal-info .ci-title{font-weight:600;font-size:14px;}
 .cal-info .ci-meta{color:var(--muted);font-size:12px;}
 .cal-countdown{font-size:12px;color:var(--accent);font-weight:600;white-space:nowrap;}
+.flag{display:inline-block;height:0.82em;width:auto;vertical-align:-0.09em;border-radius:2px;box-shadow:0 0 0 0.5px rgba(0,0,0,0.25);}
 .cal-reminder{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
 .cal-reminder select{width:auto;padding:5px 6px;font-size:12px;}
 .wa-btn{background:#25D366;color:#04250f;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;}
@@ -422,10 +423,10 @@ body.auth-locked #authGate{ display:flex; }
     </div>
   </div>
 
-  <div id="homeNextRace"></div>
-
   <div id="homeSessionClock"></div>
   <div id="homeKeyChecks"></div>
+
+  <div id="homeNextRace"></div>
 
   <div id="homeTodoMecanoReminder"></div>
 
@@ -935,11 +936,42 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     ];
   }
 
+  // Drapeaux SVG dessines en dur (Windows n'affiche pas les emoji drapeaux)
+  let _flagUid = 0;
+  const FLAG_SVG = {
+    // tricolores verticaux
+    FR: ()=>vBands('#0055A4','#ffffff','#EF4135'),
+    BE: ()=>vBands('#000000','#FAE042','#ED2939'),
+    IT: ()=>vBands('#009246','#ffffff','#CE2B37'),
+    IE: ()=>vBands('#169B62','#ffffff','#FF883E'),
+    // tricolores horizontaux
+    NL: ()=>hBands('#AE1C28','#ffffff','#21468B'),
+    DE: ()=>hBands('#000000','#DD0000','#FFCE00'),
+    AT: ()=>hBands('#ED2939','#ffffff','#ED2939'),
+    // Espagne : rouge / jaune (1:2:1) / rouge
+    ES: ()=>'<svg class="flag" viewBox="0 0 9 6"><rect width="9" height="6" fill="#AA151B"/><rect width="9" height="3" y="1.5" fill="#F1BF00"/></svg>',
+    // Portugal : vert (2) / rouge (3) + sphere jaune
+    PT: ()=>'<svg class="flag" viewBox="0 0 10 6"><rect width="10" height="6" fill="#DA291C"/><rect width="4" height="6" fill="#046A38"/><circle cx="4" cy="3" r="1.15" fill="#FFE000" stroke="#fff" stroke-width="0.15"/><circle cx="4" cy="3" r="0.55" fill="#DA291C"/></svg>',
+    // Royaume-Uni : Union Jack
+    GB: ()=>{const u='uj'+(++_flagUid);return '<svg class="flag" viewBox="0 0 60 30">'+
+      '<clipPath id="'+u+'"><path d="M0,0 v30 h60 v-30 z"/></clipPath>'+
+      '<g clip-path="url(#'+u+')">'+
+      '<path d="M0,0 v30 h60 v-30 z" fill="#012169"/>'+
+      '<path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" stroke-width="6"/>'+
+      '<path d="M30,0 v30 M0,15 h60" stroke="#fff" stroke-width="10"/>'+
+      '<path d="M30,0 v30 M0,15 h60" stroke="#C8102E" stroke-width="6"/>'+
+      '</g></svg>';}
+  };
+  function vBands(a,b,c){
+    return '<svg class="flag" viewBox="0 0 3 2"><rect width="1" height="2" x="0" fill="'+a+'"/><rect width="1" height="2" x="1" fill="'+b+'"/><rect width="1" height="2" x="2" fill="'+c+'"/></svg>';
+  }
+  function hBands(a,b,c){
+    return '<svg class="flag" viewBox="0 0 9 6"><rect width="9" height="2" y="0" fill="'+a+'"/><rect width="9" height="2" y="2" fill="'+b+'"/><rect width="9" height="2" y="4" fill="'+c+'"/></svg>';
+  }
   function flagEmoji(code){
     if(!code || code.length!==2) return '';
-    const cc = code.toUpperCase();
-    const A = 0x1F1E6;
-    return String.fromCodePoint(A + (cc.charCodeAt(0)-65)) + String.fromCodePoint(A + (cc.charCodeAt(1)-65));
+    const fn = FLAG_SVG[code.toUpperCase()];
+    return fn ? fn() : '';
   }
 
   function normalizeState(data){
@@ -2843,44 +2875,40 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     renderHomeList(replaceParts, 'homeReplaceList', true);
     renderHomeList(reviewParts, 'homeReviewList');
 
-    // next race widget
+    // planning widget (jour actuel + premiere echeance du lendemain)
     const today = todayISO();
     const nowHM = new Date().toTimeString().slice(0,5);
-    const upcoming = (STATE.mlmcEvents||[]).filter(e=>e.date>=today).sort((a,b)=>a.date<b.date?-1:1);
     const box = document.getElementById('homeNextRace');
-    if(upcoming.length){
-      const next = upcoming[0];
-      const days = Math.ceil((new Date(next.date) - new Date(today)) / 86400000);
 
-      // flatten ALL tasks from ALL events into a true chronological timeline (date + heure propres a chaque tache)
-      const allTasks = [];
-      (STATE.mlmcEvents||[]).forEach(ev=>{
-        (ev.tasks||[]).forEach(t=>{
-          const tDate = t.date || ev.date;
-          const isFuture = tDate>today || (tDate===today && (!t.endTime || t.endTime>=nowHM));
-          if(isFuture) allTasks.push({t, ev, tDate});
-        });
+    // flatten ALL tasks from ALL events into a true chronological timeline (date + heure propres a chaque tache)
+    const allTasks = [];
+    (STATE.mlmcEvents||[]).forEach(ev=>{
+      (ev.tasks||[]).forEach(t=>{
+        const tDate = t.date || ev.date;
+        if(tDate && tDate>=today) allTasks.push({t, ev, tDate});
       });
-      allTasks.sort((a,b)=>{
-        if(a.tDate!==b.tDate) return a.tDate<b.tDate?-1:1;
-        const sa = a.t.startTime||'99:99', sb = b.t.startTime||'99:99';
-        return sa<sb?-1:(sa>sb?1:0);
-      });
-      const nextTasks = allTasks.slice(0,2);
+    });
+    allTasks.sort((a,b)=>{
+      if(a.tDate!==b.tDate) return a.tDate<b.tDate?-1:1;
+      const sa = a.t.startTime||'99:99', sb = b.t.startTime||'99:99';
+      return sa<sb?-1:(sa>sb?1:0);
+    });
+    const todayTasks = allTasks.filter(x=>x.tDate===today);
+    const futureTasks = allTasks.filter(x=>x.tDate>today);
+    const planningTasks = todayTasks.concat(futureTasks.length ? [futureTasks[0]] : []);
 
-      const tasksHtml = nextTasks.length
-        ? '<div class="nr-tasks">'+nextTasks.map(({t,ev,tDate})=>
+    if(box){
+      if(planningTasks.length){
+        const tasksHtml = '<div class="nr-tasks">'+planningTasks.map(({t,ev,tDate})=>
             '<div class="nr-task-row"><span>'+(t.startTime?'<b>'+t.startTime+(t.endTime?'-'+t.endTime:'')+'</b> ':'')+t.text+'</span><span class="nr-task-meta">'+(flagEmoji(ev.country)?flagEmoji(ev.country)+' ':'')+fmtDate(tDate)+' - '+ev.label+'</span></div>'
-          ).join('')+'</div>'
-        : '';
-      box.innerHTML = '<div class="next-race-card">'+
-        '<div class="nr-label">Prochaine echeance MLMC</div>'+
-        '<div class="nr-name">'+(flagEmoji(next.country)?flagEmoji(next.country)+' ':'')+next.label+(next.location?' - '+next.location:'')+'</div>'+
-        '<div class="nr-countdown">'+(days<=0?'Aujourd\'hui':'J-'+days)+'<span>'+fmtDate(next.date)+'</span></div>'+
-        tasksHtml+
-      '</div>';
-    } else {
-      box.innerHTML = '';
+          ).join('')+'</div>';
+        box.innerHTML = '<div class="next-race-card">'+
+          '<div class="nr-label">Planning</div>'+
+          tasksHtml+
+        '</div>';
+      } else {
+        box.innerHTML = '';
+      }
     }
 
     // rappel To Do Mecano pour la prochaine session officielle
