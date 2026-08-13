@@ -266,8 +266,9 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .setup-axle-center{display:flex;justify-content:center;}
 .setup-axle-center .setup-corner-card{width:100%;max-width:660px;}
 .setup-field-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 18px;}
-.setup-field-grid .setup-field-row{margin-bottom:0;}
-.setup-field-grid .setup-field-row label{flex:0 0 92px;}
+.setup-field-grid .setup-field-row{margin-bottom:0;font-size:11px;}
+.setup-field-grid .setup-field-row label{flex:0 0 92px;font-size:11px;}
+.setup-field-grid .setup-field-row input,.setup-field-grid .setup-field-row select{font-size:11px;padding:3px 4px;}
 @media (max-width:560px){.setup-field-grid{grid-template-columns:1fr;}}
 .setup-shared-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
 @media (max-width:900px){.setup-shared-grid{grid-template-columns:1fr;}}
@@ -3954,14 +3955,20 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {key:'lsr', label:'LSR', unit:'click'},
     {key:'hsr', label:'HSR', unit:'click'},
     {key:'spring', label:'Spring', unit:'N/mm'},
-    {key:'preloadPlatform', label:'Preload Platform', unit:'mm'},
+    {key:'preloadPlatform', label:'Preload', unit:'mm'},
     {key:'bumpRubber', label:'Bump rubber', unit:'mm'},
     {key:'gap', label:'Gap', unit:'mm'},
-    {key:'packer', label:'Packer', unit:'mm'},
-    {key:'pushLength', label:'Push Length', unit:'mm'},
+    {key:'packer', label:'Packers', unit:'mm'},
     {key:'rhChassis', label:'RH chassis', unit:'mm'},
-    {key:'rhUnderfloor', label:'RH underfloor', unit:'mm'},
+    {key:'pushLength', label:'Push Length', unit:'mm'},
     {key:'cornerWeight', label:'Corner weight', unit:'Kg', noMirror:true}
+  ];
+  // Sous-sections d'une roue (comme le 3rd element du FRONT) ; les paires definissent 2 champs par ligne
+  const SETUP_WHEEL_GROUPS = [
+    {title:'', keys:['toe','camber','camberShim']},
+    {title:'Damping', keys:['lsb','hsb','lsr','hsr']},
+    {title:'Damper', keys:['spring','preloadPlatform','bumpRubber','gap','packer']},
+    {title:'General', keys:['rhChassis','pushLength','cornerWeight']}
   ];
   // Champs partages (par essieu / voiture)
   const SETUP_SHARED_FIELDS = [
@@ -4003,6 +4010,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   const SETUP_THIRD_REAR = ['thirdRearSpring','thirdRearPreload','thirdRearSprGap','thirdRearPacGap','thirdRearBump'];
   const SHARED_FIELD_BY_KEY = {};
   SETUP_SHARED_FIELDS.forEach(f=>{ SHARED_FIELD_BY_KEY[f.key]=f; });
+  const FIELD_BY_KEY = {};
+  SETUP_FIELDS.forEach(f=>{ FIELD_BY_KEY[f.key]=f; });
   const SETUP_CONDITION_FIELDS = [
     {key:'weather', label:'Weather', type:'select', options:['Dry','Wet']},
     {key:'driver', label:'Driver', type:'driver'},
@@ -4190,16 +4199,21 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     html += axleBox('FRONT', SETUP_FRONT_AXLE, '3rd Element Front', SETUP_THIRD_FRONT);
     html += '</div>';
 
-    // 2) Roues (corners) - saisie a gauche recopiee a droite
+    // 2) Roues (corners) en sous-sections - saisie a gauche recopiee a droite
     html += '<div class="setup-corners-grid" style="margin-top:16px;">';
     SETUP_CORNERS.forEach(c=>{
-      const cells = SETUP_FIELDS.map(f=>({
-        label: f.label+(f.unit?' ['+f.unit+']':''),
-        control: '<input type="text"'+ro+' class="setupFieldInput" data-corner="'+c.key+'" data-field="'+f.key+'" value="'+esc(entry.corners[c.key][f.key])+'">'
-      }));
       html += '<div class="setup-corner-card">';
       html += '<div class="setup-banner" style="border-radius:0;">'+c.label+'</div>';
-      html += '<table class="setup-corner-table"><tbody>'+pairRows(cells)+'</tbody></table></div>';
+      html += '<table class="setup-corner-table"><tbody>';
+      SETUP_WHEEL_GROUPS.forEach(g=>{
+        if(g.title) html += '<tr class="setup-subhead"><td colspan="4">'+g.title+'</td></tr>';
+        const cells = g.keys.map(k=>{ const f=FIELD_BY_KEY[k]; return {
+          label: f.label+(f.unit?' ['+f.unit+']':''),
+          control: '<input type="text"'+ro+' class="setupFieldInput" data-corner="'+c.key+'" data-field="'+k+'" value="'+esc(entry.corners[c.key][k])+'">'
+        }; });
+        html += pairRows(cells);
+      });
+      html += '</tbody></table></div>';
     });
     html += '</div>';
 
