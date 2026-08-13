@@ -3918,7 +3918,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         const hotCells=CORN.map(c=>'<td class="rs-pneus-hot">'+esc(st.press.hot[c]||'-')+'</td>').join('');
         const laps=st.laps.filter(l=>lapEffSec(l)!=null).length;
         html+='<tr'+(newSess?' class="rs-pneus-sess-first"':'')+'>'+
-          '<td style="text-align:left;font-weight:600;">'+(newSess?esc(t.text||'Session'):'')+'</td>'+
+          '<td style="text-align:left;font-weight:600;">'+esc(t.text||'Session')+(newSess?'<div class="small" style="font-weight:400;">'+esc(fmtDate(t.date))+'</div>':'')+'</td>'+
           '<td style="text-align:left;">'+(st.name?esc(st.name):'Relais '+(si+1))+'</td>'+
           '<td style="text-align:left;">'+(st.tyreSet?esc(tyreSetLabel(st.tyreSet)):'—')+'</td>'+
           coldCells+
