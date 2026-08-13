@@ -3479,7 +3479,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // Ligne du bas : commentaires + pressions/temperatures
     let bottomRow = '<div class="rs-bottom">'+
       '<div class="rs-box"><h5>Commentaires pilote</h5><textarea class="rsCommentInput" data-key="driverComments">'+esc(st.driverComments)+'</textarea></div>'+
-      '<div class="rs-box"><h5>Commentaires ingenieur (debrief)</h5><textarea class="rsCommentInput" data-key="engineerComments">'+esc(st.engineerComments)+'</textarea></div>'+
+      '<div class="rs-box"><h5>Commentaires ingenieur</h5><textarea class="rsCommentInput" data-key="engineerComments">'+esc(st.engineerComments)+'</textarea></div>'+
       pressTempsBox+
       '</div>';
 
@@ -3654,7 +3654,6 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         '<div class="rs-fr-top" style="background:'+sg.col+';"><b>'+esc(sg.title)+'</b>'+(sg.cat?' <span class="rs-fr-cat">'+esc(sg.cat)+'</span>':'')+'</div>'+
         '<div class="rs-fr-body">'+
           (sg.subtitle?'<div class="rs-fr-line small">'+esc(sg.subtitle)+'</div>':'')+
-          '<div class="rs-fr-line">'+(sg.startClock!=null?fmtHMS(sg.startClock):'--:--')+' → '+(sg.endClock!=null?fmtHMS(sg.endClock):'--:--')+'</div>'+
           '<div class="rs-fr-line"><b>'+fmtHMS(sg.durationSec)+'</b> · '+(sg.nLaps||0)+' tours</div>'+
           '<div class="rs-fr-line">'+esc(sg.tyreLabel||'—')+(sg.startKm!=null?' <span class="small">('+Math.round(sg.startKm)+(sg.endKm!=null?'→'+Math.round(sg.endKm):'')+' km)</span>':'')+'</div>'+
           (sg.line4?'<div class="rs-fr-line small">'+sg.line4+'</div>':'')+
