@@ -1089,6 +1089,17 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         ['essais','qualif','course'].forEach(k=>{ if(!Array.isArray(r[k])) r[k] = []; });
       }
     });
+    // migration ponctuelle : tache Mecano "Setup voiture" (le mecano la valide une fois le
+    // setup envoye par l'ingenieur) ajoutee dans chaque type de seance si absente
+    if(!data.mecanoSetupTaskMig){
+      ['essais','qualif','course'].forEach(k=>{
+        const list = data.todoTemplates.mecano[k];
+        if(Array.isArray(list) && !list.some(t=>(t.text||'').toLowerCase().includes('setup voiture'))){
+          list.unshift({text:'Setup voiture', link:null});
+        }
+      });
+      data.mecanoSetupTaskMig = true;
+    }
     if(!data.setupData || typeof data.setupData!=='object') data.setupData = {};
     if(!Array.isArray(data.setupSnapshots)) data.setupSnapshots = [];
     if(typeof data.setupPassword!=='string') data.setupPassword = '';
@@ -3022,7 +3033,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {label:'Warm-up', match:'warm'},
     {label:'Fuel', match:'fuel'},
     {label:'Tyres', match:'tyre'},
-    {label:'Setup', match:'setup'}
+    {label:'Setup', match:'setup voiture'}
   ];
 
   function renderKeyChecks(taskKey){
@@ -3646,6 +3657,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function builtinDefaultTodoTasks(role){
     if(role==='mecano'){
       return [
+        {text:'Setup voiture', link:null},
         {text:'Fuel in', link:null},
         {text:'Mount Plank - Front', link:'plank'},
         {text:'Mount Plank - Rear', link:'plank'},
