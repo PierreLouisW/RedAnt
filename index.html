@@ -3421,8 +3421,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       (r.stints.length>1?'<button class="danger" id="rsDelStintBtn" title="Supprimer ce relais">Suppr. relais '+(r.activeStint+1)+'</button>':'')+
     '</div>';
 
-    const friezeBlock = '<div class="rs-frieze-lbl">Réel (runsheet)</div><div id="rsFrieze" class="rs-frieze-wrap"></div>'+
-      '<div class="rs-frieze-lbl">Plan prévu</div><div id="rsPlanFrieze" class="rs-frieze-wrap"></div>';
+    const friezeBlock = '<div class="rs-frieze-lbl">Plan prévu</div><div id="rsPlanFrieze" class="rs-frieze-wrap"></div>'+
+      '<div class="rs-frieze-lbl">Réel (runsheet)</div><div id="rsFrieze" class="rs-frieze-wrap"></div>';
     box.innerHTML = stintTabs + friezeBlock + '<div class="rs-top">'+condBox+rightBox+'</div>'+lapsTable+comments;
     renderRunFrieze(taskKey);
     box.querySelectorAll('.rs-stint-tab').forEach(btn=>btn.addEventListener('click', ()=>{ getRunsheet(taskKey).activeStint=Number(btn.dataset.stint); saveState(); renderRunsheetTab(); }));
@@ -3636,7 +3636,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function runDriverOptions(sel){
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
     const ev=runEventObj();
-    const list=(ev && ev.drivers && ev.drivers.length) ? ev.drivers.slice() : (STATE.drivers||[]).map(d=>d.name);
+    const list=(ev && ev.drivers) ? ev.drivers.slice() : [];
     let o='<option value="">(not set)</option>'; let has=false;
     list.forEach(n=>{ const d=driverByName(n); const lbl=n+(d&&d.category?' ('+d.category+')':''); if(String(sel)===String(n)) has=true; o+='<option value="'+esc(n)+'"'+(String(sel)===String(n)?' selected':'')+'>'+lbl+'</option>'; });
     if(sel && !has) o+='<option value="'+esc(sel)+'" selected>'+sel+'</option>';
