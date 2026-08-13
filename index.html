@@ -291,6 +291,10 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-session-table tr.rs-session-carbest td{background:rgba(226,35,26,0.12);font-weight:600;}
 .rs-session-table tr.rs-session-weekend td{background:rgba(155,89,182,0.28);font-weight:700;}
 .rs-weather-table tr.rs-weather-session td{background:rgba(255,255,255,0.03);color:var(--muted);}
+.rs-pneus-table th,.rs-pneus-table td{white-space:nowrap;}
+.rs-pneus-table td.rs-pneus-cold input{width:52px;}
+.rs-pneus-table td.rs-pneus-hot{background:rgba(240,147,43,0.14);font-weight:600;color:var(--accent);}
+.rs-pneus-table tr.rs-pneus-sess-first td{border-top:2px solid var(--accent);}
 .rs-fr-pit-lbl{font-size:10px;text-align:center;margin-top:3px;line-height:1.3;color:var(--muted);}
 .rs-tyre-table{margin-top:8px;}
 .rs-tyre-table tr.compound-slick td{background:rgba(155,89,182,0.18);}
@@ -1007,6 +1011,7 @@ body.auth-locked #authGate{ display:flex; }
       <button data-rsub="accueil" class="active">Accueil (event)</button>
       <button data-rsub="plan">Run Plan</button>
       <button data-rsub="run">Runsheet</button>
+      <button data-rsub="pneus">Pneus</button>
       <button data-rsub="resume">Résumé</button>
     </div>
     <div class="run-sub active" id="rsub-accueil">
@@ -1025,6 +1030,12 @@ body.auth-locked #authGate{ display:flex; }
         <label>Session / seance <select id="runTaskSelect"></select></label>
       </div>
       <div id="runsheetContent"></div>
+    </div>
+    <div class="run-sub" id="rsub-pneus">
+      <div class="measure-context-row" style="margin-top:12px;">
+        <label>Evenement <select id="pneusEventSelect"></select></label>
+      </div>
+      <div id="runPneusContent"></div>
     </div>
     <div class="run-sub" id="rsub-resume">
       <div class="measure-context-row" style="margin-top:12px;">
@@ -3866,8 +3877,50 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const p=document.getElementById('rsub-'+which); if(p) p.classList.add('active');
     if(which==='accueil') renderRunAccueil();
     else if(which==='plan'){ autoSelectRunContext(); renderRunPlanTab(); }
+    else if(which==='pneus'){ renderRunPneusTab(); }
     else if(which==='resume'){ renderResumeTab(); }
     else { autoSelectRunContext(); renderRunsheetTab(); }
+  }
+  function renderRunPneusTab(){
+    const evtSel=document.getElementById('pneusEventSelect'); if(!evtSel) return;
+    if(!selectedRunContext.eventId){ const next=findNextOfficialSessionDT(); if(next) selectedRunContext.eventId=String(next.ev.id); }
+    evtSel.innerHTML=eventSelectOptions(selectedRunContext.eventId);
+    const box=document.getElementById('runPneusContent'); const ev=runEventObj();
+    if(!ev){ box.innerHTML='<div class="small" style="margin-top:12px;">Choisissez un evenement.</div>'; return; }
+    const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const CORN=['FL','FR','RL','RR'];
+    let html='<p class="small" style="margin-top:12px;">Notez les pressions à froid ; les pressions à chaud sont reprises automatiquement des runsheets de chaque session (relais).</p>';
+    html+='<div class="rs-laps-wrap"><table class="rs-laps rs-pneus-table"><thead><tr>'+
+      '<th>Session</th><th>Run</th><th>Train pneus</th>'+CORN.map(c=>'<th>Froid '+c+'</th>').join('')+'<th>Laps</th>'+CORN.map(c=>'<th>Chaud '+c+'</th>').join('')+'<th>T Air</th><th>T Piste</th><th>Pilote</th></tr></thead><tbody>';
+    let any=false, lastTask=null;
+    (ev.tasks||[]).forEach(t=>{
+      const taskKey=ev.id+'::'+t.id;
+      if(!STATE.runsheets[taskKey]) return;
+      const r=getRunsheet(taskKey);
+      r.stints.forEach((st,si)=>{
+        any=true;
+        const d=driverByName(st.driver);
+        const newSess = lastTask!==taskKey; lastTask=taskKey;
+        const coldCells=CORN.map(c=>'<td class="rs-pneus-cold"><input type="text" class="rsPneusCold" data-task="'+esc(taskKey)+'" data-stint="'+si+'" data-corner="'+c+'" value="'+esc(st.press.cold[c]||'')+'"></td>').join('');
+        const hotCells=CORN.map(c=>'<td class="rs-pneus-hot">'+esc(st.press.hot[c]||'-')+'</td>').join('');
+        const laps=st.laps.filter(l=>lapEffSec(l)!=null).length;
+        html+='<tr'+(newSess?' class="rs-pneus-sess-first"':'')+'>'+
+          '<td style="text-align:left;font-weight:600;">'+(newSess?esc(t.text||'Session'):'')+'</td>'+
+          '<td style="text-align:left;">'+(st.name?esc(st.name):'Relais '+(si+1))+'</td>'+
+          '<td style="text-align:left;">'+(st.tyreSet?esc(tyreSetLabel(st.tyreSet)):'—')+'</td>'+
+          coldCells+
+          '<td>'+laps+'</td>'+
+          hotCells+
+          '<td>'+esc(st.cond.airTemp||'-')+'</td>'+
+          '<td>'+esc(st.cond.trackTemp||'-')+'</td>'+
+          '<td style="text-align:left;"><span class="driver-dot" style="background:'+(d?d.color:'#888')+';"></span> '+esc(st.driver||'')+'</td>'+
+        '</tr>';
+      });
+    });
+    if(!any) html+='<tr><td colspan="16" class="small" style="text-align:left;">Aucune session avec runsheet. Remplissez des relais dans les runsheets de l\'event.</td></tr>';
+    html+='</tbody></table></div>';
+    box.innerHTML=html;
+    box.querySelectorAll('.rsPneusCold').forEach(el=>el.addEventListener('change', e=>{ const r=getRunsheet(e.target.dataset.task); const st=r&&r.stints[Number(e.target.dataset.stint)]; if(st){ st.press.cold[e.target.dataset.corner]=e.target.value; saveState(); } }));
   }
   // ---------- RUN PLAN ----------
   function normPlanRun(r){ ['driver','tyreSet','laps','fuelAdded','description','changes','pitTime','startTime'].forEach(k=>{ if(typeof r[k]!=='string') r[k]=(r[k]==null?'':String(r[k])); }); if(typeof r.box!=='boolean') r.box=false; return r; }
@@ -4177,6 +4230,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
   document.querySelectorAll('#resumeSubtabs button').forEach(btn=>btn.addEventListener('click', ()=>{ activeResumeSub=btn.dataset.resub; const box=document.getElementById('resumeContent'); if(box) box.removeAttribute('data-pace-metric'); renderResumeTab(); }));
   (function(){ const s=document.getElementById('resumeEventSelect'); if(s) s.addEventListener('change', e=>{ selectedRunContext.eventId=e.target.value; renderResumeTab(); }); })();
+  (function(){ const s=document.getElementById('pneusEventSelect'); if(s) s.addEventListener('change', e=>{ selectedRunContext.eventId=e.target.value; renderRunPneusTab(); }); })();
   document.querySelectorAll('#runSubtabs button').forEach(btn=>btn.addEventListener('click', ()=>showRunSub(btn.dataset.rsub)));
 
   // ---------- HEADER / ALERTS ----------
