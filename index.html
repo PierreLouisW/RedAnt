@@ -2900,7 +2900,6 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
   function renderBuildsheet(){
     const box = document.getElementById('buildsheetContent');
-    const rimCat = getCategory('rim');
 
     let html = '<div class="corner-grid">';
     CORNERS.forEach(c=>{
@@ -2918,8 +2917,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         html += '<tr><td colspan="4" class="small">Aucune piece suspension identifiee pour ce coin.</td></tr>';
       }
       html += '</tbody></table></div>';
-      html += '<div class="corner-subtitle">Roue / freins</div>';
-      if(rimCat) html += renderCategorySlot(rimCat, c.key);
+      html += '<div class="corner-subtitle">Freins</div>';
       html += renderBrakeAxleSlot(c.axle);
       html += '</div>';
     });
