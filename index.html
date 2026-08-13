@@ -1018,11 +1018,14 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!Array.isArray(data.revisions)) data.revisions = deepClone(SEED.revisions||[]);
     if(!data.circuits || typeof data.circuits!=='object') data.circuits = deepClone(SEED.circuits||{});
     if(!Array.isArray(data.stockCategories)) data.stockCategories = deepClone(SEED.stockCategories||[]);
-    const discCatMig = data.stockCategories.find(c=>c.key==='disc');
-    if(discCatMig && (!Array.isArray(discCatMig.positions) || !discCatMig.positions.length)) discCatMig.positions = ['FL','FR','RL','RR'];
-    const bellCatMig = data.stockCategories.find(c=>c.key==='bell');
-    if(bellCatMig && (!Array.isArray(bellCatMig.positions) || !bellCatMig.positions.length)) bellCatMig.positions = ['FL','FR','RL','RR'];
+    ['disc','bell','pad'].forEach(key=>{ const cat=data.stockCategories.find(c=>c.key===key); if(cat && (!Array.isArray(cat.positions) || !cat.positions.length)) cat.positions = ['L','R']; });
     if(!Array.isArray(data.stockItems)) data.stockItems = deepClone(SEED.stockItems||[]);
+    // Positions Left/Right (au lieu de Front/Rear ou FL/FR...) pour disc/bell/pad, editables
+    if(!data.stockPosLRMig){
+      ['disc','bell','pad'].forEach(key=>{ const cat=data.stockCategories.find(c=>c.key===key); if(cat) cat.positions=['L','R']; });
+      data.stockItems.forEach(i=>{ if(['disc','bell','pad'].includes(i.categoryKey)){ const p=(i.position||'').toUpperCase(); if(['FL','RL','L','LEFT','GAUCHE'].includes(p)) i.position='L'; else if(['FR','RR','R','RIGHT','DROITE'].includes(p)) i.position='R'; } });
+      data.stockPosLRMig = true;
+    }
     const tyreCatMig = data.stockCategories.find(c=>c.key==='tyre');
     if(tyreCatMig && !(tyreCatMig.extraFields||[]).some(f=>f.key==='compound')){
       tyreCatMig.extraFields = (tyreCatMig.extraFields||[]).concat([{key:'compound', label:'Type (S/W)'}]);
@@ -2109,10 +2112,19 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
           if(w) thicknessCell += '<div class="small">moy '+w.avg+'mm'+(w.pct!=null?' - usure '+w.pct+'%':'')+'</div>';
         }
       }
+      let posCell = (item.position||'-');
+      if(Array.isArray(c.positions) && c.positions.length){
+        const inList = c.positions.indexOf(item.position)>=0;
+        posCell = '<select class="stockPosSelect" data-id="'+item.id+'">'+
+          '<option value="">-</option>'+
+          c.positions.map(p=>'<option value="'+p+'" '+(item.position===p?'selected':'')+'>'+p+'</option>').join('')+
+          (item.position && !inList ? '<option value="'+(''+item.position).replace(/"/g,'&quot;')+'" selected>'+item.position+'</option>' : '')+
+        '</select>';
+      }
       return '<tr>'+
         '<td>'+c.label+'</td>'+
         '<td><input type="text" class="stockCodeInput" data-id="'+item.id+'" value="'+(item.code||'').replace(/"/g,'&quot;')+'" style="min-width:110px;"></td>'+
-        '<td>'+(item.position||'-')+'</td>'+
+        '<td>'+posCell+'</td>'+
         '<td><span class="status-pill '+item.status+'">'+STOCK_STATUS_LABEL[item.status]+'</span><br>'+statusSelect+'</td>'+
         '<td>'+mileageCell+'</td>'+
         '<td>'+thicknessCell+'</td>'+
@@ -2132,6 +2144,12 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         const item = STATE.stockItems.find(i=>i.id===Number(e.target.dataset.id));
         const newCode = e.target.value.trim();
         if(item && newCode){ item.code = newCode; saveState(); }
+      });
+    });
+    document.querySelectorAll('.stockPosSelect').forEach(sel=>{
+      sel.addEventListener('change', (e)=>{
+        const item = STATE.stockItems.find(i=>i.id===Number(e.target.dataset.id));
+        if(item){ item.position = e.target.value || null; saveState(); renderStockTable(); }
       });
     });
     document.querySelectorAll('.stockMileageInput').forEach(inp=>{
