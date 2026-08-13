@@ -229,7 +229,8 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-laps input{width:100%;padding:3px 4px;font-size:12px;text-align:center;background:transparent;border:1px solid transparent;}
 .rs-laps input:focus{background:var(--panel2);border-color:var(--border);}
 .rs-laps input.rs-notes{text-align:left;}
-.rs-laps td.rs-best{background:rgba(31,157,85,0.28);font-weight:700;}
+.rs-laps td.rs-best-session{background:rgba(155,89,182,0.42);font-weight:700;}
+.rs-laps td.rs-best-stint{background:rgba(31,157,85,0.32);font-weight:700;}
 .rs-status-sel{width:auto;min-width:64px;font-weight:700;border:none;border-radius:5px;padding:3px 4px;text-align:center;}
 .rs-auto{font-weight:700;color:var(--text);}
 .rs-laps td.rs-fuel{font-weight:600;color:var(--accent);}
@@ -3281,6 +3282,14 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   // Horloge HH:MM(:SS) <-> secondes
   function parseClock(str){ if(!str) return null; const m=String(str).trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/); if(!m) return null; return (+m[1])*3600+(+m[2])*60+(m[3]?+m[3]:0); }
   function fmtHMS(sec){ if(sec==null||!isFinite(sec)) return '-'; sec=Math.max(0,Math.round(sec)); const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60; return (h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(s<10?'0':'')+s; }
+  // Fuel de depart effectif d'un relais = start fuel + fuel added (cumul)
+  function effectiveStartFuel(stint){
+    const sf=parseFloat(String((stint.fuel&&stint.fuel.startFuel)||'').replace(',','.'));
+    const fa=parseFloat(String((stint.fuel&&stint.fuel.fuelAdded)||'').replace(',','.'));
+    let base=isNaN(sf)?null:sf;
+    if(!isNaN(fa)) base=(base==null?0:base)+fa;
+    return base;
+  }
   // Statistiques d'un relais
   function stintStats(stint){
     const laps=stint.laps||[];
@@ -3292,9 +3301,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const theo=(b1!=null&&b2!=null&&b3!=null)?(b1+b2+b3):null;
     const consos=laps.map(l=>parseFloat(String(l.conso||'').replace(',','.'))).filter(v=>!isNaN(v));
     const totalConso=consos.reduce((a,b)=>a+b,0);
-    const sf=parseFloat(String((stint.fuel&&stint.fuel.startFuel)||'').replace(',','.'));
+    const sf=effectiveStartFuel(stint);
     return {nLaps:laps.length, countedLaps:secs.length, durationSec, best, theo, totalConso,
-      startFuel:isNaN(sf)?null:sf, fuelEnd:isNaN(sf)?null:(sf-totalConso)};
+      startFuel:sf, fuelEnd:(sf==null)?null:(sf-totalConso)};
   }
   // Valeurs par defaut d'un tour vide selon le pilote du relais (laptime + conso de reference)
   function stintDefaultLap(stint){
@@ -3402,7 +3411,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     renderRunFrieze(taskKey);
     box.querySelectorAll('.rs-stint-tab').forEach(btn=>btn.addEventListener('click', ()=>{ getRunsheet(taskKey).activeStint=Number(btn.dataset.stint); saveState(); renderRunsheetTab(); }));
     const addStintBtn=box.querySelector('#rsAddStintBtn');
-    if(addStintBtn) addStintBtn.addEventListener('click', ()=>{ const rr=getRunsheet(taskKey); const prev=rr.stints[rr.stints.length-1]||{}; rr.stints.push(normStint({ driver:prev.driver||'', setupId:prev.setupId||'', tyreSet:'', startTime:'' })); rr.activeStint=rr.stints.length-1; saveState(); renderRunsheetTab(); });
+    if(addStintBtn) addStintBtn.addEventListener('click', ()=>{ const rr=getRunsheet(taskKey); const prev=rr.stints[rr.stints.length-1]||{}; const ns=normStint({ driver:prev.driver||'', setupId:prev.setupId||'', tyreSet:'', startTime:'' }); const prevEnd=stintStats(prev).fuelEnd; if(prevEnd!=null) ns.fuel.startFuel=String(Math.round(prevEnd*100)/100); rr.stints.push(ns); rr.activeStint=rr.stints.length-1; saveState(); renderRunsheetTab(); });
     const delStintBtn=box.querySelector('#rsDelStintBtn');
     if(delStintBtn) delStintBtn.addEventListener('click', ()=>{ const rr=getRunsheet(taskKey); if(rr.stints.length<=1) return; if(!confirm('Supprimer le relais '+(rr.activeStint+1)+' ?')) return; rr.stints.splice(rr.activeStint,1); rr.activeStint=Math.max(0,rr.activeStint-1); saveState(); renderRunsheetTab(); });
 
@@ -3435,13 +3444,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function renderLapsBody(taskKey){
     const st=getStint(taskKey); const body=document.getElementById('rsLapsBody'); if(!body) return;
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
-    const startFuel=parseFloat(String(st.fuel.startFuel||'').replace(',','.'));
+    const startFuel=effectiveStartFuel(st);
     let cum=0;
     body.innerHTML=st.laps.map((lp,i)=>{
       const auto=lapAutoSec(lp);
       const laptimeStr=auto!=null?fmtLapTime(auto):(lp.laptime||'');
       const conso=parseFloat(String(lp.conso||'').replace(',','.')); if(!isNaN(conso)) cum+=conso;
-      const fuelRem=(!isNaN(startFuel))?(startFuel-cum):null;
+      const fuelRem=(startFuel!=null)?(startFuel-cum):null;
       const st=rsTrack(lp.status||'green');
       const statusSel='<select class="rsLap rs-status-sel" data-i="'+i+'" data-f="status" style="background:'+st.bg+';color:'+st.fg+';">'+RS_TRACK.map(s=>'<option value="'+s.key+'" '+((lp.status||'green')===s.key?'selected':'')+'>'+s.label+'</option>').join('')+'</select>';
       const laptimeCell=auto!=null?'<span class="rs-auto">'+laptimeStr+'</span>':'<input type="text" class="rsLap" data-i="'+i+'" data-f="laptime" value="'+esc(lp.laptime||'')+'">';
@@ -3451,7 +3460,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         '<td>'+statusSel+'</td>'+
         '<td><input type="text" class="rsLap" data-i="'+i+'" data-f="mark" value="'+esc(lp.mark)+'" style="width:34px;"></td>'+
         '<td class="rsLaptime">'+laptimeCell+'</td>'+
-        '<td>'+inp('s1')+'</td><td>'+inp('s2')+'</td><td>'+inp('s3')+'</td>'+
+        '<td class="rs-sec" data-sec="s1">'+inp('s1')+'</td><td class="rs-sec" data-sec="s2">'+inp('s2')+'</td><td class="rs-sec" data-sec="s3">'+inp('s3')+'</td>'+
         '<td>'+inp('speed')+'</td>'+
         '<td><input type="text" class="rsLap" data-i="'+i+'" data-f="conso" value="'+esc(lp.conso||'')+'" style="width:52px;"></td>'+
         '<td class="rs-fuel">'+(fuelRem!=null?fuelRem.toFixed(2):'-')+'</td>'+
@@ -3460,14 +3469,32 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       '</tr>';
     }).join('');
     updateRunSummary(taskKey);
+    applyBestColors(taskKey);
     renderRunFrieze(taskKey);
+  }
+  // Coloration meilleur secteur/tour : violet = meilleur de la session (tous relais), vert = meilleur du relais en cours
+  function applyBestColors(taskKey){
+    const r=getRunsheet(taskKey); if(!r) return;
+    const st=r.stints[r.activeStint]; const body=document.getElementById('rsLapsBody'); if(!body) return;
+    const allLaps=[].concat.apply([], r.stints.map(s=>s.laps||[]));
+    const minOf=(laps,fn)=>{ const v=laps.map(fn).filter(x=>x!=null); return v.length?Math.min.apply(null,v):null; };
+    const eq=(a,b)=>a!=null&&b!=null&&Math.abs(a-b)<1e-6;
+    const setCell=(cell,v,sBest,tBest)=>{ if(!cell) return; cell.classList.remove('rs-best-session','rs-best-stint'); if(v==null) return; if(eq(v,sBest)) cell.classList.add('rs-best-session'); else if(eq(v,tBest)) cell.classList.add('rs-best-stint'); };
+    const sBestLap=minOf(allLaps,lapEffSec), tBestLap=minOf(st.laps,lapEffSec);
+    const sBestSec={}, tBestSec={};
+    ['s1','s2','s3'].forEach(f=>{ sBestSec[f]=minOf(allLaps,l=>parseLapTime(l[f])); tBestSec[f]=minOf(st.laps,l=>parseLapTime(l[f])); });
+    st.laps.forEach((lp,i)=>{
+      const tr=body.querySelector('tr[data-i="'+i+'"]'); if(!tr) return;
+      setCell(tr.querySelector('.rsLaptime'), lapEffSec(lp), sBestLap, tBestLap);
+      ['s1','s2','s3'].forEach(f=>{ setCell(tr.querySelector('td.rs-sec[data-sec="'+f+'"]'), parseLapTime(lp[f]), sBestSec[f], tBestSec[f]); });
+    });
   }
   // Recalcule les cellules derivees (laptime auto, fuel, resume, frise) SANS reconstruire les inputs
   function refreshLapDerived(taskKey){
     const st=getStint(taskKey); if(!st) return;
     const body=document.getElementById('rsLapsBody'); if(!body) return;
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
-    const startFuel=parseFloat(String(st.fuel.startFuel||'').replace(',','.'));
+    const startFuel=effectiveStartFuel(st);
     let cum=0;
     st.laps.forEach((lp,i)=>{
       const tr=body.querySelector('tr[data-i="'+i+'"]'); if(!tr) return;
@@ -3478,10 +3505,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         else if(!ltCell.querySelector('input')){ ltCell.innerHTML='<input type="text" class="rsLap" data-i="'+i+'" data-f="laptime" value="'+esc(lp.laptime||'')+'">'; }
       }
       const conso=parseFloat(String(lp.conso||'').replace(',','.')); if(!isNaN(conso)) cum+=conso;
-      const fuelRem=(!isNaN(startFuel))?(startFuel-cum):null;
+      const fuelRem=(startFuel!=null)?(startFuel-cum):null;
       const fuelCell=tr.querySelector('.rs-fuel'); if(fuelCell) fuelCell.textContent=(fuelRem!=null?fuelRem.toFixed(2):'-');
     });
     updateRunSummary(taskKey);
+    applyBestColors(taskKey);
     renderRunFrieze(taskKey);
   }
   function updateRunSummary(taskKey){
@@ -3503,12 +3531,6 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       '<span>Tours: <b>'+laptimes.length+'</b></span>'+
       '<span>Conso/tour: <b>'+(consoLap!=null?consoLap.toFixed(2)+' L':'-')+'</b></span>'+
       '<span>Conso totale: <b>'+(consos.length?totalConso.toFixed(2)+' L':'-')+'</b></span>';
-    // surligner le meilleur tour
-    document.querySelectorAll('#rsLapsBody tr').forEach(tr=>{
-      const i=Number(tr.dataset.i); const cell=tr.querySelector('.rsLaptime'); if(!cell) return;
-      const v=lapSecs[i];
-      if(best!=null && v!=null && Math.abs(v-best)<1e-6) cell.classList.add('rs-best'); else cell.classList.remove('rs-best');
-    });
   }
   function renderRunFrieze(taskKey){
     const container=document.getElementById('rsFrieze'); if(!container) return;
