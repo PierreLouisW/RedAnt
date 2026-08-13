@@ -85,6 +85,9 @@ a.dl{color:var(--accent);}
 .rs-modal-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);font-size:13px;}
 .rs-modal-body{padding:8px 16px;overflow-y:auto;}
 .rs-modal-foot{padding:12px 16px;border-top:1px solid var(--border);text-align:right;}
+.rs-ref-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+@media (max-width:760px){.rs-ref-grid{grid-template-columns:1fr;}}
+.rs-ref-title{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;}
 .status-pill{display:inline-block;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;color:#fff;}
 .status-pill.jetee{background:#6b6b6b;}
 .status-pill.atelier{background:#2c5f8a;}
@@ -3381,10 +3384,28 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       '<button class="secondary" id="rsAddTyreBtn" style="margin-top:8px;">+ Ajouter des pneus</button></div>';
     html+='<div class="rs-assign-box"><h5>Pilotes de l\'event</h5>'+((STATE.drivers||[]).length?STATE.drivers.map(d=>'<label class="rs-check-row"><input type="checkbox" class="rsEvtDriver" value="'+esc(d.name)+'" '+(ev.drivers.indexOf(d.name)>=0?'checked':'')+'> <span class="driver-dot" style="background:'+(d.color||'#888')+';"></span> '+d.name+(d.category?' ('+d.category+')':'')+'</label>').join(''):'<div class="small">Aucun pilote (onglet Voiture &gt; Pilotes).</div>')+'</div>';
     html+='</div>';
+
+    // Reference conso / laptime (par condition + par pilote)
+    if(!ev.refConditions || typeof ev.refConditions!=='object') ev.refConditions={};
+    if(!ev.refDrivers || typeof ev.refDrivers!=='object') ev.refDrivers={};
+    if(typeof ev.lapDistanceKm!=='string') ev.lapDistanceKm='';
+    const RS_CONDS=[{key:'green',label:'Vert (normal)'},{key:'fcy',label:'FCY (80 km/h)'},{key:'sc',label:'Safety Car'},{key:'wet',label:'Wet'}];
+    html+='<div class="rs-assign-box" style="margin-top:14px;"><h5>Reference conso / laptime</h5>';
+    html+='<div class="rs-field" style="max-width:240px;margin-bottom:8px;"><label>Distance du tour (km) — pour calcul FCY</label><input type="text" id="rsLapDist" value="'+esc(ev.lapDistanceKm)+'"></div>';
+    html+='<div class="rs-ref-grid"><div><b class="rs-ref-title">Par condition</b><table class="rs-press-table"><thead><tr><th>Condition</th><th>Laptime (s)</th><th>Conso (L/tour)</th></tr></thead><tbody>';
+    RS_CONDS.forEach(c=>{ const rc=ev.refConditions[c.key]||{}; html+='<tr><td style="text-align:left;">'+c.label+'</td><td><input type="text" class="rsRefCond" data-cond="'+c.key+'" data-f="laptime" value="'+esc(rc.laptime)+'"'+(c.key==='fcy'?' placeholder="auto"':'')+'></td><td><input type="text" class="rsRefCond" data-cond="'+c.key+'" data-f="conso" value="'+esc(rc.conso)+'"></td></tr>'; });
+    html+='</tbody></table></div>';
+    html+='<div><b class="rs-ref-title">Par pilote (coche)</b>'+(ev.drivers.length?'<table class="rs-press-table"><thead><tr><th>Pilote</th><th>Laptime (s)</th><th>Conso (L/tour)</th></tr></thead><tbody>'+ev.drivers.map(n=>{ const rd=ev.refDrivers[n]||{}; const d=driverByName(n); return '<tr><td style="text-align:left;"><span class="driver-dot" style="background:'+(d?d.color:'#888')+';"></span> '+n+'</td><td><input type="text" class="rsRefDriver" data-driver="'+esc(n)+'" data-f="laptime" value="'+esc(rd.laptime)+'"></td><td><input type="text" class="rsRefDriver" data-driver="'+esc(n)+'" data-f="conso" value="'+esc(rd.conso)+'"></td></tr>'; }).join('')+'</tbody></table>':'<div class="small">Cochez des pilotes ci-dessus.</div>')+'</div>';
+    html+='</div></div>';
+
     box.innerHTML=html;
     const evSel=document.getElementById('runAccueilEventSelect');
     if(evSel) evSel.addEventListener('change', e=>{ selectedRunContext.eventId=e.target.value; selectedRunContext.taskKey=''; renderRunAccueil(); });
-    box.querySelectorAll('.rsEvtDriver').forEach(cb=>cb.addEventListener('change', e=>{ toggleInArray(ev.drivers, e.target.value, e.target.checked); saveState(); }));
+    box.querySelectorAll('.rsEvtDriver').forEach(cb=>cb.addEventListener('change', e=>{ toggleInArray(ev.drivers, e.target.value, e.target.checked); saveState(); renderRunAccueil(); }));
+    const distEl=document.getElementById('rsLapDist');
+    if(distEl) distEl.addEventListener('change', e=>{ ev.lapDistanceKm=e.target.value; const d=parseFloat(String(e.target.value).replace(',','.')); ev.refConditions.fcy=ev.refConditions.fcy||{}; if(!isNaN(d)&&d>0 && !ev.refConditions.fcy.laptime) ev.refConditions.fcy.laptime=(d/80*3600).toFixed(1); saveState(); renderRunAccueil(); });
+    box.querySelectorAll('.rsRefCond').forEach(inp=>inp.addEventListener('change', e=>{ const c=e.target.dataset.cond; ev.refConditions[c]=ev.refConditions[c]||{}; ev.refConditions[c][e.target.dataset.f]=e.target.value; saveState(); }));
+    box.querySelectorAll('.rsRefDriver').forEach(inp=>inp.addEventListener('change', e=>{ const n=e.target.dataset.driver; ev.refDrivers[n]=ev.refDrivers[n]||{}; ev.refDrivers[n][e.target.dataset.f]=e.target.value; saveState(); }));
     box.querySelectorAll('.rs-chip-x').forEach(btn=>btn.addEventListener('click', ()=>{ toggleInArray(ev.tyreSets, btn.dataset.code, false); saveState(); renderRunAccueil(); }));
     const addTyreBtn=box.querySelector('#rsAddTyreBtn');
     if(addTyreBtn) addTyreBtn.addEventListener('click', ()=>openTyrePickerModal(ev));
