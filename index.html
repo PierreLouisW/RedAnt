@@ -247,10 +247,13 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-laps input{width:100%;padding:3px 4px;font-size:12px;text-align:center;background:transparent;border:1px solid transparent;}
 .rs-laps input:focus{background:var(--panel2);border-color:var(--border);}
 .rs-laps input.rs-notes{text-align:left;}
-.rs-laps td.rs-sec input{width:46px;}
-.rs-oi-sel{width:50px;font-size:11px;padding:2px;text-align:center;}
+.rs-laps td.rs-sec input{width:56px;}
+.rs-laps td.rsLaptime input{width:58px;}
+.rs-laps input.rs-narrow{width:44px;}
+.rs-laps input.rs-notes{min-width:240px;width:240px;text-align:left;}
+.rs-oi-sel{width:46px;font-size:11px;padding:2px;text-align:center;}
 .rs-tl-chk{width:auto;}
-.rs-pos-inp{width:38px;text-align:center;}
+.rs-pos-inp{width:32px;text-align:center;}
 .rs-laps td.rs-pos.rs-pos-up{background:rgba(31,157,85,0.38);font-weight:700;}
 .rs-laps td.rs-pos.rs-pos-down{background:rgba(192,57,43,0.42);font-weight:700;}
 .rs-laps td.rs-best-session{background:rgba(155,89,182,0.42);font-weight:700;}
@@ -3475,7 +3478,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
     // Laps table (corps rempli par renderLapsBody) — bouton d'ajout AU-DESSUS pour ne pas bouger
     let lapsTable = '<div class="row" style="margin-bottom:8px;align-items:center;"><button class="secondary" id="rsAddLapBtn">+ Ajouter un tour</button><div id="rsSummary" class="rs-summary"></div></div>'+
-      '<div class="rs-laps-wrap"><table class="rs-laps"><thead><tr><th>L#</th><th>Statut</th><th>O/I</th><th>Laptime</th><th>S1</th><th>S2</th><th>S3</th><th>Speed</th><th title="Track limits">TL</th><th title="Classement">Pos</th><th>Conso</th><th>Fuel</th><th>Notes</th><th></th></tr></thead><tbody id="rsLapsBody"></tbody></table></div>';
+      '<div class="rs-laps-wrap"><table class="rs-laps"><thead><tr><th>L#</th><th>Statut</th><th>O/I</th><th>Laptime</th><th>S1</th><th>S2</th><th>S3</th><th>Speed</th><th title="Track limits">TL</th><th title="Classement">Pos</th><th>Notes</th><th>Conso</th><th>Fuel</th><th>km</th><th></th></tr></thead><tbody id="rsLapsBody"></tbody></table></div>';
 
     // Ligne du bas : commentaires + pressions/temperatures
     let bottomRow = '<div class="rs-bottom">'+
@@ -3540,14 +3543,17 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const st=getStint(taskKey); const body=document.getElementById('rsLapsBody'); if(!body) return;
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
     const startFuel=effectiveStartFuel(st);
+    const tyreStartKm = st.tyreSet?tyreSetStartKm(st.tyreSet):null;
+    const circuitKmKm = (Number((runEventObj()||{}).circuitKm)||0)/1000;
     let cum=0;
     body.innerHTML=st.laps.map((lp,i)=>{
       const auto=lapAutoSec(lp);
       const laptimeStr=auto!=null?fmtLapTime(auto):(lp.laptime||'');
       const conso=parseFloat(String(lp.conso||'').replace(',','.')); if(!isNaN(conso)) cum+=conso;
       const fuelRem=(startFuel!=null)?(startFuel-cum):null;
-      const st=rsTrack(lp.status||'green');
-      const statusSel='<select class="rsLap rs-status-sel" data-i="'+i+'" data-f="status" style="background:'+st.bg+';color:'+st.fg+';">'+RS_TRACK.map(s=>'<option value="'+s.key+'" '+((lp.status||'green')===s.key?'selected':'')+'>'+s.label+'</option>').join('')+'</select>';
+      const tyreKm=(tyreStartKm!=null)?(tyreStartKm+(i+1)*circuitKmKm):null;
+      const stt=rsTrack(lp.status||'green');
+      const statusSel='<select class="rsLap rs-status-sel" data-i="'+i+'" data-f="status" style="background:'+stt.bg+';color:'+stt.fg+';">'+RS_TRACK.map(s=>'<option value="'+s.key+'" '+((lp.status||'green')===s.key?'selected':'')+'>'+s.label+'</option>').join('')+'</select>';
       const laptimeCell=auto!=null?'<span class="rs-auto">'+laptimeStr+'</span>':'<input type="text" class="rsLap" data-i="'+i+'" data-f="laptime" value="'+esc(lp.laptime||'')+'">';
       const inp=(f,extra)=>'<input type="text" class="rsLap'+(extra||'')+'" data-i="'+i+'" data-f="'+f+'" value="'+esc(lp[f]||'')+'">';
       return '<tr data-i="'+i+'">'+
@@ -3556,12 +3562,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         '<td><select class="rsLap rs-oi-sel" data-i="'+i+'" data-f="mark">'+['','O','I','O/I'].map(o=>'<option value="'+o+'" '+((lp.mark||'')===o?'selected':'')+'>'+(o||'-')+'</option>').join('')+'</select></td>'+
         '<td class="rsLaptime">'+laptimeCell+'</td>'+
         '<td class="rs-sec" data-sec="s1">'+inp('s1')+'</td><td class="rs-sec" data-sec="s2">'+inp('s2')+'</td><td class="rs-sec" data-sec="s3">'+inp('s3')+'</td>'+
-        '<td>'+inp('speed')+'</td>'+
+        '<td>'+inp('speed',' rs-narrow')+'</td>'+
         '<td><input type="checkbox" class="rsLap rs-tl-chk" data-i="'+i+'" data-f="tl" '+(lp.tl?'checked':'')+'></td>'+
         '<td class="rs-pos" data-i="'+i+'"><input type="text" class="rsLap rs-pos-inp" data-i="'+i+'" data-f="pos" value="'+esc(lp.pos||'')+'"></td>'+
-        '<td><input type="text" class="rsLap" data-i="'+i+'" data-f="conso" value="'+esc(lp.conso||'')+'" style="width:52px;"></td>'+
-        '<td class="rs-fuel">'+(fuelRem!=null?fuelRem.toFixed(2):'-')+'</td>'+
         '<td>'+inp('notes',' rs-notes')+'</td>'+
+        '<td><input type="text" class="rsLap rs-narrow" data-i="'+i+'" data-f="conso" value="'+esc(lp.conso||'')+'"></td>'+
+        '<td class="rs-fuel">'+(fuelRem!=null?fuelRem.toFixed(2):'-')+'</td>'+
+        '<td class="rs-tyrekm">'+(tyreKm!=null?Math.round(tyreKm):'-')+'</td>'+
         '<td><button class="rs-lap-del" data-i="'+i+'" title="Supprimer">&times;</button></td>'+
       '</tr>';
     }).join('');
