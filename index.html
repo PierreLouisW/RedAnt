@@ -263,6 +263,8 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .setup-corner-table input{padding:3px 4px;font-size:11px;width:100%;}
 .setup-corner-table td select{padding:3px 4px;font-size:11px;width:100%;}
 .setup-corner-table tr.setup-subhead td{background:var(--panel);color:var(--accent);font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:.4px;padding:5px 6px;}
+.setup-axle-center{display:flex;justify-content:center;}
+.setup-axle-center .setup-corner-card{width:100%;max-width:460px;}
 .setup-shared-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
 @media (max-width:900px){.setup-shared-grid{grid-template-columns:1fr;}}
 .setup-shared-box{border:1px solid var(--border);border-radius:8px;background:var(--panel2);padding:10px 12px;}
@@ -3954,25 +3956,25 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   const SETUP_SHARED_FIELDS = [
     {key:'arbDiameterFront', label:'Anti roll bar diameter', unit:'mm'},
     {key:'arbBladeFront', label:'Anti roll bar blade'},
-    {key:'brakeSetFront', label:'Frein Av', source:'brake'},
+    {key:'brakeSetFront', label:'Brake Front', source:'brake'},
     {key:'plankFront', label:'Plank Front', source:'plank'},
-    {key:'divePlane', label:'Dive plane'},
+    {key:'divePlane', label:'Dive Plane'},
     {key:'arbDiameterRear', label:'Anti roll bar diameter', unit:'mm'},
     {key:'arbBladeRear', label:'Anti roll bar blade'},
-    {key:'brakeSetRear', label:'Frein Ar', source:'brake'},
+    {key:'brakeSetRear', label:'Brake Rear', source:'brake'},
     {key:'plankRear', label:'Plank Rear', source:'plank'},
     {key:'wingAngle', label:'Wing Angle', unit:'deg'},
     {key:'gurney', label:'Gurney'},
-    {key:'diffPreload', label:'Diff preload', unit:'N/m'},
+    {key:'diffPreload', label:'Diff Preload', unit:'N/m'},
     {key:'thirdFrontSpring', label:'3rd Elem. Front - Spring'},
     {key:'thirdFrontPreload', label:'3rd Elem. Front - Preload'},
-    {key:'thirdFrontSprGap', label:'3rd Elem. Front - Spr Gap'},
-    {key:'thirdFrontPacGap', label:'3rd Elem. Front - Pac Gap'},
+    {key:'thirdFrontSprGap', label:'3rd Elem. Front - Spring Gap'},
+    {key:'thirdFrontPacGap', label:'3rd Elem. Front - Packers Gap'},
     {key:'thirdFrontBump', label:'3rd Elem. Front - Bump Rubber'},
     {key:'thirdRearSpring', label:'3rd Elem. Rear - Spring'},
     {key:'thirdRearPreload', label:'3rd Elem. Rear - Preload'},
-    {key:'thirdRearSprGap', label:'3rd Elem. Rear - Spr Gap'},
-    {key:'thirdRearPacGap', label:'3rd Elem. Rear - Pac Gap'},
+    {key:'thirdRearSprGap', label:'3rd Elem. Rear - Spring Gap'},
+    {key:'thirdRearPacGap', label:'3rd Elem. Rear - Packers Gap'},
     {key:'thirdRearBump', label:'3rd Elem. Rear - Bump Rubber'}
   ];
   const SETUP_WEIGHTS_FIELDS = [
@@ -4162,9 +4164,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       return h + '</div>';
     };
 
-    // 1) FRONT (essieu) au-dessus des roues
-    html += '<div class="setup-corners-grid" style="margin-top:12px;">';
-    html += axleBox('FRONT', SETUP_FRONT_AXLE, '3eme element avant', SETUP_THIRD_FRONT);
+    // 1) FRONT (essieu) au-dessus des roues, centre
+    html += '<div class="setup-axle-center" style="margin-top:12px;">';
+    html += axleBox('FRONT', SETUP_FRONT_AXLE, '3rd Element Front', SETUP_THIRD_FRONT);
     html += '</div>';
 
     // 2) Roues (corners) - saisie a gauche recopiee a droite
@@ -4181,9 +4183,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     });
     html += '</div>';
 
-    // 3) REAR (essieu) apres les roues
-    html += '<div class="setup-corners-grid" style="margin-top:16px;">';
-    html += axleBox('REAR', SETUP_REAR_AXLE, '3eme element arriere', SETUP_THIRD_REAR);
+    // 3) REAR (essieu) apres les roues, centre
+    html += '<div class="setup-axle-center" style="margin-top:16px;">';
+    html += axleBox('REAR', SETUP_REAR_AXLE, '3rd Element Rear', SETUP_THIRD_REAR);
     html += '</div>';
 
     // 3) Conditions + Homologation / Poids / Resultats
