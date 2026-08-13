@@ -300,6 +300,8 @@ td.releve-diff input{font-weight:700;color:#e6a01e;}
 .setup-releve-table td.setup-releve-td{width:52px;}
 .setup-releve-table input.setupReleveInput{width:46px;max-width:46px;padding:2px 3px;}
 .setup-setdown-bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
+.lr-link-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap;cursor:pointer;}
+.lr-link-toggle input{width:auto;flex:0 0 auto;margin:0;}
 .setup-hist-scroll{overflow-x:auto;margin-top:12px;border:1px solid var(--border);border-radius:8px;}
 .setup-hist-cols{font-size:11px;min-width:100%;}
 .setup-hist-cols th{text-align:left;padding:6px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);vertical-align:top;white-space:nowrap;}
@@ -1158,6 +1160,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(typeof data.setupPassword!=='string') data.setupPassword = '';
     // Mot de passe Setup retire (acces gere plus tard par utilisateur) : on efface l'existant une fois
     if(!data.setupPasswordCleared){ data.setupPassword = ''; data.setupPasswordCleared = true; }
+    // Recopie automatique gauche->droite des reglages de roue (decochable pour l'asymetrie)
+    if(typeof data.setupLinkLR!=='boolean') data.setupLinkLR = true;
     // Valeurs disponibles par parametre (listes deroulantes dans le setup) : { fieldKey: [valeurs] }
     if(!data.setupParamOptions || typeof data.setupParamOptions!=='object') data.setupParamOptions = {};
     // Exemple prerempli (anti roll bar diameter) - modifiable dans l'onglet Parametres
@@ -4209,6 +4213,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
           '<option value="setdown"'+(entry.phase==='setdown'?' selected':'')+'>Setdown (apres seance)</option>'+
         '</select></div>'+
         '<div style="flex:0 0 auto;"><button class="primary" id="setupSaveBtn" style="margin-top:0;">Enregistrer dans l\'historique</button></div>'+
+        '<div style="flex:0 0 auto;"><label class="lr-link-toggle"><input type="checkbox" id="setupLinkLRToggle"'+(STATE.setupLinkLR?' checked':'')+'> Lier G/D (recopie auto)</label></div>'+
         '<div style="flex:1;"><span class="small">Ce brouillon n\'entre dans l\'historique qu\'au clic sur Enregistrer.</span></div>'+
       '</div>';
     }
@@ -4309,10 +4314,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         const corner = e.target.dataset.corner, field = e.target.dataset.field, val = e.target.value;
         const en = getSetupEntry(taskKey);
         en.corners[corner][field] = val;
-        // Symetrie : saisie a gauche (FL/RL) recopiee a droite (FR/RR), modifiable ensuite. Sauf noMirror (ex: corner weight)
+        // Symetrie : saisie a gauche (FL/RL) recopiee a droite (FR/RR) si "Lier G/D" actif. Sauf noMirror (ex: corner weight)
         const fdef = SETUP_FIELDS.find(f=>f.key===field);
         const mirror = {fl:'fr', rl:'rr'}[corner];
-        if(mirror && !(fdef && fdef.noMirror)){
+        if(STATE.setupLinkLR && mirror && !(fdef && fdef.noMirror)){
           en.corners[mirror][field] = val;
           const mInp = container.querySelector('.setupFieldInput[data-corner="'+mirror+'"][data-field="'+field+'"]');
           if(mInp) mInp.value = val;
@@ -4340,6 +4345,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     });
     const phaseSel = container.querySelector('#setupPhaseSelect');
     if(phaseSel) phaseSel.addEventListener('change', (e)=>{ getSetupEntry(taskKey).phase = e.target.value; saveState(); });
+    const linkTgl = container.querySelector('#setupLinkLRToggle');
+    if(linkTgl) linkTgl.addEventListener('change', (e)=>{ STATE.setupLinkLR = e.target.checked; saveState(); });
     const saveBtn = container.querySelector('#setupSaveBtn');
     if(saveBtn) saveBtn.addEventListener('click', ()=> saveSetupSnapshot(taskKey));
   }
@@ -4614,7 +4621,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     let html = '';
     html += '<div class="setup-setdown-bar">'+
       '<button class="primary" id="setupSetdownSaveBtn" style="margin-top:0;">Enregistrer le setdown</button>'+
-      '<span class="small">Target = setup prevu (lecture seule). Relevez les valeurs mesurees ; l\'ecart se colore. L\'enregistrement cree une entree <b>Setdown</b> comparable dans l\'onglet Setup.</span>'+
+      '<label class="lr-link-toggle"><input type="checkbox" id="setupLinkLRToggle"'+(STATE.setupLinkLR?' checked':'')+'> Lier G/D (recopie auto)</label>'+
+      '<span class="small">Target = setup prevu (lecture seule). Relevez les valeurs mesurees ; l\'ecart se colore.</span>'+
     '</div>';
 
     // FRONT
@@ -4665,12 +4673,29 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       inp.addEventListener('change', (e)=>{
         const t = e.target, sec=t.dataset.sec, field=t.dataset.field, val=t.value;
         const en = getSetupEntry(taskKey);
-        if(sec==='corner') en.readings.corners[t.dataset.corner][field] = val;
+        if(sec==='corner'){
+          en.readings.corners[t.dataset.corner][field] = val;
+          // recopie gauche->droite du releve si "Lier G/D" actif (sauf corner weight)
+          const fdef = FIELD_BY_KEY[field];
+          const mirror = {fl:'fr', rl:'rr'}[t.dataset.corner];
+          if(STATE.setupLinkLR && mirror && !(fdef && fdef.noMirror)){
+            en.readings.corners[mirror][field] = val;
+            const mInp = box.querySelector('.setupReleveInput[data-sec="corner"][data-corner="'+mirror+'"][data-field="'+field+'"]');
+            if(mInp){
+              mInp.value = val;
+              const mTarget = cval(en.corners[mirror][field]);
+              if(setupReleveDiff(mTarget, val)) mInp.parentElement.classList.add('releve-diff');
+              else mInp.parentElement.classList.remove('releve-diff');
+            }
+          }
+        }
         else if(sec==='shared') en.readings.shared[field] = val;
         else en.readings.weights[field] = val;
         saveState();
       });
     });
+    const linkTgl = box.querySelector('#setupLinkLRToggle');
+    if(linkTgl) linkTgl.addEventListener('change', (e)=>{ STATE.setupLinkLR = e.target.checked; saveState(); });
     const saveBtn = box.querySelector('#setupSetdownSaveBtn');
     if(saveBtn) saveBtn.addEventListener('click', ()=> saveSetdownSnapshot(taskKey));
   }
