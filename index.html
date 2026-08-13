@@ -261,6 +261,7 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-session-table td,.rs-session-table th{white-space:nowrap;}
 .rs-session-table tr.rs-session-carbest td{background:rgba(226,35,26,0.12);font-weight:600;}
 .rs-session-table tr.rs-session-weekend td{background:rgba(155,89,182,0.28);font-weight:700;}
+.rs-weather-table tr.rs-weather-session td{background:rgba(255,255,255,0.03);color:var(--muted);}
 .rs-fr-pit-lbl{font-size:10px;text-align:center;margin-top:3px;line-height:1.3;color:var(--muted);}
 .rs-tyre-table{margin-top:8px;}
 .rs-tyre-table tr.compound-slick td{background:rgba(155,89,182,0.18);}
@@ -3911,11 +3912,26 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     else if(activeResumeSub==='session') renderResumeSession(box, ev);
     else renderResumePace(box, ev);
   }
+  // Releves temperature faits dans les sessions (conditions des relais de la runsheet)
+  function sessionWeatherReadings(ev){
+    const out=[];
+    (ev.tasks||[]).forEach(t=>{
+      const taskKey=ev.id+'::'+t.id;
+      if(!STATE.runsheets[taskKey]) return;
+      const r=getRunsheet(taskKey);
+      r.stints.forEach((st,si)=>{
+        const air=(st.cond&&st.cond.airTemp)||'', track=(st.cond&&st.cond.trackTemp)||'';
+        if(String(air).trim()===''&&String(track).trim()==='') return;
+        out.push({date:t.date||'', time:st.startTime||'', airTemp:air, trackTemp:track, note:(t.text||'Session')+(r.stints.length>1?' — relais '+(si+1):'')});
+      });
+    });
+    return out;
+  }
   function renderResumeWeather(box, ev){
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
     const log=ev.weatherLog||[];
-    let html='<p class="small" style="margin-top:12px;">Relevez les temperatures air/piste a tout moment du week-end (meme hors session).</p>';
-    // chart
+    const sessionR=sessionWeatherReadings(ev);
+    let html='<p class="small" style="margin-top:12px;">Relevez les temperatures air/piste a tout moment du week-end. Les relevés faits en session (conditions des runsheets) sont repris automatiquement.</p>';
     html+='<div id="weatherChart" class="rs-chart-wrap"></div>';
     html+='<div class="row" style="margin:8px 0;"><button class="secondary" id="weatherAddBtn">+ Ajouter un releve</button></div>';
     html+='<div class="rs-laps-wrap"><table class="rs-laps rs-weather-table"><thead><tr><th>Date</th><th>Heure</th><th>Air (°C)</th><th>Piste (°C)</th><th>Note</th><th></th></tr></thead><tbody>';
@@ -3927,12 +3943,17 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       '<td><input type="text" class="rsWeather rs-notes" data-i="'+i+'" data-f="note" value="'+esc(w.note)+'" style="min-width:140px;"></td>'+
       '<td><button class="rs-lap-del rsWeatherDel" data-i="'+i+'" title="Supprimer">&times;</button></td>'+
     '</tr>'; });
+    // relevés de session (lecture seule)
+    sessionR.forEach(w=>{ html+='<tr class="rs-weather-session">'+
+      '<td>'+esc(w.date)+'</td><td>'+esc(w.time||'-')+'</td><td>'+esc(w.airTemp||'-')+'</td><td>'+esc(w.trackTemp||'-')+'</td>'+
+      '<td style="text-align:left;"><span class="small">📋 '+esc(w.note)+'</span></td><td></td></tr>'; });
     html+='</tbody></table></div>';
     box.innerHTML=html;
-    // chart data (ordre chronologique)
-    const sorted=log.map((w,i)=>({w,i})).sort((a,b)=>((a.w.date+' '+a.w.time)<(b.w.date+' '+b.w.time)?-1:1));
+    // chart data (manuel + session, ordre chronologique)
+    const all=log.concat(sessionR);
+    const sorted=all.slice().sort((a,b)=>(((a.date||'')+' '+(a.time||''))<((b.date||'')+' '+(b.time||''))?-1:1));
     const air=[], track=[];
-    sorted.forEach((o,k)=>{ const a=parseFloat(String(o.w.airTemp).replace(',','.')); const t=parseFloat(String(o.w.trackTemp).replace(',','.')); air.push({x:k+1, y:isNaN(a)?null:a, lbl:(o.w.date||'')+' '+(o.w.time||'')}); track.push({x:k+1, y:isNaN(t)?null:t}); });
+    sorted.forEach((w,k)=>{ const a=parseFloat(String(w.airTemp).replace(',','.')); const t=parseFloat(String(w.trackTemp).replace(',','.')); air.push({x:k+1, y:isNaN(a)?null:a}); track.push({x:k+1, y:isNaN(t)?null:t}); });
     document.getElementById('weatherChart').innerHTML = svgLineChart([
       {label:'Air', color:'#e2231a', points:air},
       {label:'Piste', color:'#e69138', points:track}
@@ -5496,7 +5517,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
           '<option value="setup"'+(entry.phase==='setup'?' selected':'')+'>Setup (avant seance)</option>'+
           '<option value="setdown"'+(entry.phase==='setdown'?' selected':'')+'>Setdown (apres seance)</option>'+
         '</select></div>'+
-        '<div style="flex:0 0 auto;"><button class="primary" id="setupSaveBtn" style="margin-top:0;">Enregistrer dans l\'historique</button></div>'+
+        '<div style="flex:0 0 auto;"><button class="primary" id="setupSaveBtn" style="margin-top:0;">Enregistrer</button></div>'+
         '<div style="flex:0 0 auto;"><button class="secondary" id="setupCurrentBtn" style="margin-top:0;'+(STATE.currentSetupTaskKey===taskKey?'background:#1f7a4d;border-color:#1f7a4d;color:#fff;font-weight:700;':'')+'">'+(STATE.currentSetupTaskKey===taskKey?'✓ Setup actuel (voiture)':'Marquer comme setup actuel')+'</button></div>'+
         '<div style="flex:0 0 auto;"><label class="lr-link-toggle"><input type="checkbox" id="setupLinkLRToggle"'+(STATE.setupLinkLR?' checked':'')+'> Lier G/D (recopie auto)</label></div>'+
         '<div style="flex:1;"><span class="small">Marquer un setup comme "actuel" met les sets de frein / planches sur la Voiture (stock) et l\'ancien en Camion.</span></div>'+
@@ -5697,12 +5718,20 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     });
   }
 
+  // Nom par defaut d'un setup : Setup/Setdown_CIR_Seance (ex: Setup_SPA_PP1)
+  function defaultSetupName(taskKey, phase){
+    const found=findTodoTask(taskKey);
+    const circ=found?(circuitGuessFromLocation(found.ev.location)||found.ev.location||found.ev.label||''):'';
+    const circ3=String(circ).replace(/[^A-Za-z]/g,'').slice(0,3).toUpperCase();
+    const sess=(found&&found.task&&found.task.text)?String(found.task.text).replace(/\s+/g,''):'';
+    const phaseWord=(phase==='setdown')?'Setdown':'Setup';
+    return [phaseWord, circ3, sess].filter(Boolean).join('_');
+  }
   function saveSetupSnapshot(taskKey){
     if(!taskKey){ alert('Choisissez une session/seance avant d\'enregistrer.'); return; }
     if(!Array.isArray(STATE.setupSnapshots)) STATE.setupSnapshots = [];
     const entry = getSetupEntry(taskKey);
-    const nbSame = STATE.setupSnapshots.filter(s=>s.taskKey===taskKey).length;
-    const defName = ((entry.phase==='setdown')?'Setdown':'Setup')+' '+(nbSame+1);
+    const defName = defaultSetupName(taskKey, entry.phase);
     let name = prompt('Nom du setup (pour le distinguer des autres de la meme session) :', defName);
     if(name===null) return; // annule
     name = (name||'').trim() || defName;
@@ -6235,8 +6264,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     SETUP_SHARED_FIELDS.forEach(f=>{ shared[f.key] = pick(entry.readings.shared[f.key], entry.shared[f.key]); });
     const weights = {};
     SETUP_WEIGHTS_FIELDS.forEach(f=>{ weights[f.key] = pick(entry.readings.weights[f.key], entry.weights[f.key]); });
-    const nbSame = STATE.setupSnapshots.filter(s=>s.taskKey===taskKey).length;
-    const defName = 'Setdown '+(nbSame+1);
+    const defName = defaultSetupName(taskKey, 'setdown');
     let name = prompt('Nom du setdown (pour le distinguer des autres de la meme session) :', defName);
     if(name===null) return; // annule
     name = (name||'').trim() || defName;
