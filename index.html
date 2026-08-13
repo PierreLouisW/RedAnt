@@ -234,6 +234,21 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-auto{font-weight:700;color:var(--text);}
 .rs-laps td.rs-fuel{font-weight:600;color:var(--accent);}
 .rs-lap-del{background:transparent;border:none;color:var(--due2);cursor:pointer;font-size:15px;}
+.rs-stint-tabs{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px;}
+.rs-stint-tab{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:4px 12px;font-size:12px;cursor:pointer;color:var(--text);}
+.rs-stint-tab.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700;}
+.rs-frieze-wrap{margin-bottom:14px;overflow-x:auto;}
+.rs-frieze{display:flex;align-items:stretch;min-width:min-content;}
+.rs-fr-stint{flex:1 1 0;min-width:158px;border:2px solid #888;border-radius:6px;overflow:hidden;cursor:pointer;background:var(--panel);}
+.rs-fr-stint.active{box-shadow:0 0 0 2px var(--accent);}
+.rs-fr-top{padding:4px 8px;color:#fff;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:6px;}
+.rs-fr-cat{font-size:10px;background:rgba(255,255,255,0.25);padding:1px 5px;border-radius:8px;font-weight:600;}
+.rs-fr-body{padding:5px 8px;}
+.rs-fr-line{font-size:12px;line-height:1.5;white-space:nowrap;}
+.rs-fr-line.small{font-size:11px;color:var(--muted);}
+.rs-fr-pit{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:0 4px;min-width:56px;}
+.rs-fr-pit-bar{width:6px;height:34px;border-radius:2px;margin-top:8px;}
+.rs-fr-pit-lbl{font-size:10px;text-align:center;margin-top:3px;line-height:1.3;color:var(--muted);}
 .rs-tyre-table{margin-top:8px;}
 .rs-tyre-table tr.compound-slick td{background:rgba(155,89,182,0.18);}
 .rs-tyre-table tr.compound-wet td{background:rgba(241,196,15,0.15);}
@@ -3241,15 +3256,57 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const a=parseLapTime(lp.s1), b=parseLapTime(lp.s2), c=parseLapTime(lp.s3);
     return (a!=null&&b!=null&&c!=null) ? (a+b+c) : null;
   }
+  function normStint(s){
+    if(!s.cond) s.cond={}; if(!s.fuel) s.fuel={};
+    if(!s.press) s.press={cold:{},hot:{}}; if(!s.press.cold) s.press.cold={}; if(!s.press.hot) s.press.hot={};
+    if(!Array.isArray(s.laps)) s.laps=[];
+    ['driver','setupId','tyreSet','driverComments','engineerComments','startTime'].forEach(k=>{ if(typeof s[k]!=='string') s[k]=''; });
+    return s;
+  }
   function getRunsheet(taskKey){
     if(!taskKey) return null;
     if(!STATE.runsheets[taskKey]) STATE.runsheets[taskKey] = {};
     const r = STATE.runsheets[taskKey];
-    if(!r.cond) r.cond={}; if(!r.fuel) r.fuel={};
-    if(!r.press) r.press={cold:{},hot:{}}; if(!r.press.cold) r.press.cold={}; if(!r.press.hot) r.press.hot={};
-    if(!Array.isArray(r.laps)) r.laps=[];
-    ['driver','setupId','tyreSet','driverComments','engineerComments'].forEach(k=>{ if(typeof r[k]!=='string') r[k]=''; });
+    // Migration : passage a un tableau de relais (stints)
+    if(!Array.isArray(r.stints)){
+      r.stints = [ normStint({ driver:r.driver||'', setupId:r.setupId||'', tyreSet:r.tyreSet||'', startTime:'',
+        cond:r.cond||{}, fuel:r.fuel||{}, press:r.press||{cold:{},hot:{}}, laps:Array.isArray(r.laps)?r.laps:[],
+        driverComments:r.driverComments||'', engineerComments:r.engineerComments||'' }) ];
+    }
+    r.stints.forEach(normStint);
+    if(typeof r.activeStint!=='number' || r.activeStint<0 || r.activeStint>=r.stints.length) r.activeStint=0;
     return r;
+  }
+  function getStint(taskKey){ const r=getRunsheet(taskKey); return r ? r.stints[r.activeStint] : null; }
+  // Temps effectif d'un tour (somme secteurs sinon laptime saisi)
+  function lapEffSec(lp){ const a=lapAutoSec(lp); return a!=null?a:parseLapTime(lp.laptime); }
+  // Horloge HH:MM(:SS) <-> secondes
+  function parseClock(str){ if(!str) return null; const m=String(str).trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/); if(!m) return null; return (+m[1])*3600+(+m[2])*60+(m[3]?+m[3]:0); }
+  function fmtHMS(sec){ if(sec==null||!isFinite(sec)) return '-'; sec=Math.max(0,Math.round(sec)); const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60; return (h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(s<10?'0':'')+s; }
+  // Statistiques d'un relais
+  function stintStats(stint){
+    const laps=stint.laps||[];
+    const secs=laps.map(lapEffSec).filter(v=>v!=null);
+    const durationSec=secs.reduce((a,b)=>a+b,0);
+    const best=secs.length?Math.min.apply(null,secs):null;
+    const bestSec=(f)=>{ const v=laps.map(l=>parseLapTime(l[f])).filter(x=>x!=null); return v.length?Math.min.apply(null,v):null; };
+    const b1=bestSec('s1'),b2=bestSec('s2'),b3=bestSec('s3');
+    const theo=(b1!=null&&b2!=null&&b3!=null)?(b1+b2+b3):null;
+    const consos=laps.map(l=>parseFloat(String(l.conso||'').replace(',','.'))).filter(v=>!isNaN(v));
+    const totalConso=consos.reduce((a,b)=>a+b,0);
+    const sf=parseFloat(String((stint.fuel&&stint.fuel.startFuel)||'').replace(',','.'));
+    return {nLaps:laps.length, countedLaps:secs.length, durationSec, best, theo, totalConso,
+      startFuel:isNaN(sf)?null:sf, fuelEnd:isNaN(sf)?null:(sf-totalConso)};
+  }
+  // Valeurs par defaut d'un tour vide selon le pilote du relais (laptime + conso de reference)
+  function stintDefaultLap(stint){
+    const ev=runEventObj();
+    const refD=(ev&&ev.refDrivers&&stint&&stint.driver&&ev.refDrivers[stint.driver])||{};
+    const refG=(ev&&ev.refConditions&&ev.refConditions.green)||{};
+    let laptime='';
+    if(refD.laptime!=null&&refD.laptime!==''){ const s=parseLapTime(refD.laptime); laptime=(s!=null)?fmtLapTime(s):''; }
+    let conso=(refD.conso!=null&&refD.conso!=='')?refD.conso:((refG.conso!=null&&refG.conso!=='')?refG.conso:'');
+    return {laptime:laptime, conso:String(conso)};
   }
   function parseLapTime(str){
     if(str==null) return null;
@@ -3281,25 +3338,30 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const taskKey = selectedRunContext.taskKey;
     if(!taskKey){ box.innerHTML = '<div class="small">Selectionnez une session officielle pour sa run sheet.</div>'; return; }
     const r = getRunsheet(taskKey);
+    const st = getStint(taskKey);
     const esc = (x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+
+    // Prefill heure de depart du 1er relais depuis l'horaire de la seance (Calendrier)
+    if(r.activeStint===0 && !st.startTime){ const found=findTodoTask(taskKey); if(found && found.task && found.task.startTime) st.startTime=found.task.startTime; }
 
     // options setup snapshots + tyre sets
     const snapOpts = '<option value="">(aucun)</option>'+(STATE.setupSnapshots||[]).slice().sort((a,b)=>(b.savedAt||0)-(a.savedAt||0)).map(s=>{
       const found=findTodoTask(s.taskKey); const lbl='['+(s.phase==='setdown'?'Setdown':'Setup')+'] '+(s.name?s.name+' - ':'')+(found?fmtDate(found.task.date)+' '+found.task.text:'')+' #'+s.id;
-      return '<option value="'+s.id+'" '+(String(r.setupId)===String(s.id)?'selected':'')+'>'+lbl+'</option>';
+      return '<option value="'+s.id+'" '+(String(st.setupId)===String(s.id)?'selected':'')+'>'+lbl+'</option>';
     }).join('');
     const rimCodes = runTyreSetCodes();
-    const tyreOpts = '<option value="">(aucun)</option>'+rimCodes.map(c=>'<option value="'+esc(c)+'" '+(r.tyreSet===c?'selected':'')+'>'+tyreSetLabel(c)+'</option>').join('')+((r.tyreSet && rimCodes.indexOf(r.tyreSet)<0)?'<option value="'+esc(r.tyreSet)+'" selected>'+r.tyreSet+'</option>':'');
+    const tyreOpts = '<option value="">(aucun)</option>'+rimCodes.map(c=>'<option value="'+esc(c)+'" '+(st.tyreSet===c?'selected':'')+'>'+tyreSetLabel(c)+'</option>').join('')+((st.tyreSet && rimCodes.indexOf(st.tyreSet)<0)?'<option value="'+esc(st.tyreSet)+'" selected>'+st.tyreSet+'</option>':'');
 
     // Conditions box
     const condField = (f)=>{
       let ctl;
-      if(f.type==='select') ctl='<select class="rsCondInput" data-key="'+f.key+'"><option value="">-</option>'+f.options.map(o=>'<option value="'+o+'" '+(r.cond[f.key]===o?'selected':'')+'>'+o+'</option>').join('')+'</select>';
-      else ctl='<input type="text" class="rsCondInput" data-key="'+f.key+'" value="'+esc(r.cond[f.key])+'">';
+      if(f.type==='select') ctl='<select class="rsCondInput" data-key="'+f.key+'"><option value="">-</option>'+f.options.map(o=>'<option value="'+o+'" '+(st.cond[f.key]===o?'selected':'')+'>'+o+'</option>').join('')+'</select>';
+      else ctl='<input type="text" class="rsCondInput" data-key="'+f.key+'" value="'+esc(st.cond[f.key])+'">';
       return '<div class="rs-field"><label>'+f.label+'</label>'+ctl+'</div>';
     };
     let condBox = '<div class="rs-box"><h5>Conditions du run</h5><div class="rs-cond-grid">'+
-      '<div class="rs-field"><label>Pilote</label><select class="rsMetaInput" data-key="driver">'+runDriverOptions(r.driver)+'</select></div>'+
+      '<div class="rs-field"><label>Pilote</label><select class="rsMetaInput" data-key="driver">'+runDriverOptions(st.driver)+'</select></div>'+
+      '<div class="rs-field"><label>Heure pit-out</label><input type="text" class="rsMetaInput" data-key="startTime" value="'+esc(st.startTime)+'" placeholder="HH:MM:SS"></div>'+
       RS_COND.map(condField).join('')+
       '</div>'+
       '<div class="rs-cond-grid" style="margin-top:8px;">'+
@@ -3308,9 +3370,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       '</div></div>';
 
     // Fuel + pressures box
-    const cellCap = runSetupCellCapacity(r);
-    const fuelField=(f)=>{ const isStart=f.key==='startFuel'; const lbl=f.label+(isStart&&cellCap!=null?' (max '+cellCap+')':''); return '<div class="rs-field"><label>'+lbl+'</label><input type="text" class="rsFuelInput" data-key="'+f.key+'" value="'+esc(r.fuel[f.key])+'"></div>'; };
-    const pressRow=(kind)=> RS_CORNERS.map(c=>'<td><input type="text" class="rsPressInput" data-kind="'+kind+'" data-corner="'+c+'" value="'+esc(r.press[kind][c])+'"></td>').join('');
+    const cellCap = runSetupCellCapacity(st);
+    const fuelField=(f)=>{ const isStart=f.key==='startFuel'; const lbl=f.label+(isStart&&cellCap!=null?' (max '+cellCap+')':''); return '<div class="rs-field"><label>'+lbl+'</label><input type="text" class="rsFuelInput" data-key="'+f.key+'" value="'+esc(st.fuel[f.key])+'"></div>'; };
+    const pressRow=(kind)=> RS_CORNERS.map(c=>'<td><input type="text" class="rsPressInput" data-kind="'+kind+'" data-corner="'+c+'" value="'+esc(st.press[kind][c])+'"></td>').join('');
     let rightBox = '<div class="rs-box"><h5>Carburant</h5><div class="rs-cond-grid" style="grid-template-columns:repeat(2,1fr);">'+RS_FUEL.map(fuelField).join('')+'</div>'+
       '<h5 style="margin-top:12px;">Pressions pneus (bar)</h5>'+
       '<table class="rs-press-table"><thead><tr><th></th>'+RS_CORNERS.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+
@@ -3322,25 +3384,40 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
     // Comments
     let comments = '<div class="rs-comments">'+
-      '<div class="rs-box"><h5>Commentaires pilote</h5><textarea class="rsCommentInput" data-key="driverComments">'+esc(r.driverComments)+'</textarea></div>'+
-      '<div class="rs-box"><h5>Commentaires ingenieur (debrief)</h5><textarea class="rsCommentInput" data-key="engineerComments">'+esc(r.engineerComments)+'</textarea></div>'+
+      '<div class="rs-box"><h5>Commentaires pilote</h5><textarea class="rsCommentInput" data-key="driverComments">'+esc(st.driverComments)+'</textarea></div>'+
+      '<div class="rs-box"><h5>Commentaires ingenieur (debrief)</h5><textarea class="rsCommentInput" data-key="engineerComments">'+esc(st.engineerComments)+'</textarea></div>'+
       '</div>';
 
-    box.innerHTML = '<div class="rs-top">'+condBox+rightBox+'</div>'+lapsTable+comments;
+    // Onglets de relais
+    let stintTabs = '<div class="rs-stint-tabs">'+ r.stints.map((s,idx)=>{
+      const d=driverByName(s.driver); const col=d?d.color:'#888';
+      return '<button class="rs-stint-tab'+(idx===r.activeStint?' active':'')+'" data-stint="'+idx+'"><span class="driver-dot" style="background:'+col+';"></span>Relais '+(idx+1)+(s.driver?' — '+esc(s.driver):'')+'</button>';
+    }).join('')+
+      '<button class="secondary" id="rsAddStintBtn">+ Relais</button>'+
+      (r.stints.length>1?'<button class="danger" id="rsDelStintBtn" title="Supprimer ce relais">Suppr. relais '+(r.activeStint+1)+'</button>':'')+
+    '</div>';
+
+    box.innerHTML = stintTabs + '<div id="rsFrieze" class="rs-frieze-wrap"></div>' + '<div class="rs-top">'+condBox+rightBox+'</div>'+lapsTable+comments;
+    renderRunFrieze(taskKey);
+    box.querySelectorAll('.rs-stint-tab').forEach(btn=>btn.addEventListener('click', ()=>{ getRunsheet(taskKey).activeStint=Number(btn.dataset.stint); saveState(); renderRunsheetTab(); }));
+    const addStintBtn=box.querySelector('#rsAddStintBtn');
+    if(addStintBtn) addStintBtn.addEventListener('click', ()=>{ const rr=getRunsheet(taskKey); const prev=rr.stints[rr.stints.length-1]||{}; rr.stints.push(normStint({ driver:prev.driver||'', setupId:prev.setupId||'', tyreSet:'', startTime:'' })); rr.activeStint=rr.stints.length-1; saveState(); renderRunsheetTab(); });
+    const delStintBtn=box.querySelector('#rsDelStintBtn');
+    if(delStintBtn) delStintBtn.addEventListener('click', ()=>{ const rr=getRunsheet(taskKey); if(rr.stints.length<=1) return; if(!confirm('Supprimer le relais '+(rr.activeStint+1)+' ?')) return; rr.stints.splice(rr.activeStint,1); rr.activeStint=Math.max(0,rr.activeStint-1); saveState(); renderRunsheetTab(); });
 
     // wiring
     const save=()=>saveState();
-    box.querySelectorAll('.rsCondInput').forEach(el=>el.addEventListener('change', e=>{ getRunsheet(taskKey).cond[e.target.dataset.key]=e.target.value; save(); }));
-    box.querySelectorAll('.rsFuelInput').forEach(el=>el.addEventListener('change', e=>{ const r2=getRunsheet(taskKey); if(e.target.dataset.key==='startFuel'){ const cap=runSetupCellCapacity(r2); let v=parseFloat(String(e.target.value).replace(',','.')); if(cap!=null && !isNaN(v) && v>cap){ v=cap; e.target.value=String(cap); alert('Start fuel limite a la cell capacity du setup associe ('+cap+' L).'); } } r2.fuel[e.target.dataset.key]=e.target.value; save(); renderLapsBody(taskKey); }));
-    box.querySelectorAll('.rsPressInput').forEach(el=>el.addEventListener('change', e=>{ getRunsheet(taskKey).press[e.target.dataset.kind][e.target.dataset.corner]=e.target.value; save(); }));
-    box.querySelectorAll('.rsMetaInput').forEach(el=>el.addEventListener('change', e=>{ getRunsheet(taskKey)[e.target.dataset.key]=e.target.value; save(); if(e.target.dataset.key==='setupId') renderRunsheetTab(); }));
-    box.querySelectorAll('.rsCommentInput').forEach(el=>el.addEventListener('change', e=>{ getRunsheet(taskKey)[e.target.dataset.key]=e.target.value; save(); }));
+    box.querySelectorAll('.rsCondInput').forEach(el=>el.addEventListener('change', e=>{ getStint(taskKey).cond[e.target.dataset.key]=e.target.value; save(); }));
+    box.querySelectorAll('.rsFuelInput').forEach(el=>el.addEventListener('change', e=>{ const s2=getStint(taskKey); if(e.target.dataset.key==='startFuel'){ const cap=runSetupCellCapacity(s2); let v=parseFloat(String(e.target.value).replace(',','.')); if(cap!=null && !isNaN(v) && v>cap){ v=cap; e.target.value=String(cap); alert('Start fuel limite a la cell capacity du setup associe ('+cap+' L).'); } } s2.fuel[e.target.dataset.key]=e.target.value; save(); renderLapsBody(taskKey); }));
+    box.querySelectorAll('.rsPressInput').forEach(el=>el.addEventListener('change', e=>{ getStint(taskKey).press[e.target.dataset.kind][e.target.dataset.corner]=e.target.value; save(); }));
+    box.querySelectorAll('.rsMetaInput').forEach(el=>el.addEventListener('change', e=>{ getStint(taskKey)[e.target.dataset.key]=e.target.value; save(); if(['setupId','driver','tyreSet','startTime'].indexOf(e.target.dataset.key)>=0) renderRunsheetTab(); }));
+    box.querySelectorAll('.rsCommentInput').forEach(el=>el.addEventListener('change', e=>{ getStint(taskKey)[e.target.dataset.key]=e.target.value; save(); }));
     renderLapsBody(taskKey);
     const lapsBody=document.getElementById('rsLapsBody');
     if(lapsBody){
       lapsBody.addEventListener('change', e=>{
         const t=e.target; if(!t.dataset || t.dataset.i==null) return;
-        const i=Number(t.dataset.i), f=t.dataset.f; const rr=getRunsheet(taskKey); const lp=rr.laps[i]; if(!lp) return;
+        const i=Number(t.dataset.i), f=t.dataset.f; const stt=getStint(taskKey); const lp=stt.laps[i]; if(!lp) return;
         lp[f]=t.value;
         // conso auto quand le statut piste change
         if(f==='status'){ const ref=(runEventObj()&&runEventObj().refConditions)||{}; if(t.value==='red') lp.conso='0'; else { const rk=rsTrack(t.value).ref; if(rk && ref[rk] && ref[rk].conso!=null && ref[rk].conso!=='') lp.conso=String(ref[rk].conso); } }
@@ -3348,17 +3425,17 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         if(f==='s1'||f==='s2'||f==='s3'){ const a=lapAutoSec(lp); if(a!=null) lp.laptime=fmtLapTime(a); }
         saveState(); renderLapsBody(taskKey);
       });
-      lapsBody.addEventListener('click', e=>{ if(e.target.classList && e.target.classList.contains('rs-lap-del')){ const i=Number(e.target.dataset.i); getRunsheet(taskKey).laps.splice(i,1); saveState(); renderLapsBody(taskKey); } });
+      lapsBody.addEventListener('click', e=>{ if(e.target.classList && e.target.classList.contains('rs-lap-del')){ const i=Number(e.target.dataset.i); getStint(taskKey).laps.splice(i,1); saveState(); renderLapsBody(taskKey); } });
     }
     const addBtn=box.querySelector('#rsAddLapBtn');
-    if(addBtn) addBtn.addEventListener('click', ()=>{ const rr=getRunsheet(taskKey); const ref=(runEventObj()&&runEventObj().refConditions)||{}; const gc=(ref.green&&ref.green.conso!=null)?ref.green.conso:''; rr.laps.push({mark:'',status:'green',laptime:'',s1:'',s2:'',s3:'',speed:'',conso:String(gc),notes:''}); saveState(); renderLapsBody(taskKey); });
+    if(addBtn) addBtn.addEventListener('click', ()=>{ const stt=getStint(taskKey); const def=stintDefaultLap(stt); stt.laps.push({mark:'',status:'green',laptime:def.laptime,s1:'',s2:'',s3:'',speed:'',conso:def.conso,notes:''}); saveState(); renderLapsBody(taskKey); });
   }
   function renderLapsBody(taskKey){
-    const r=getRunsheet(taskKey); const body=document.getElementById('rsLapsBody'); if(!body) return;
+    const st=getStint(taskKey); const body=document.getElementById('rsLapsBody'); if(!body) return;
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
-    const startFuel=parseFloat(String(r.fuel.startFuel||'').replace(',','.'));
+    const startFuel=parseFloat(String(st.fuel.startFuel||'').replace(',','.'));
     let cum=0;
-    body.innerHTML=r.laps.map((lp,i)=>{
+    body.innerHTML=st.laps.map((lp,i)=>{
       const auto=lapAutoSec(lp);
       const laptimeStr=auto!=null?fmtLapTime(auto):(lp.laptime||'');
       const conso=parseFloat(String(lp.conso||'').replace(',','.')); if(!isNaN(conso)) cum+=conso;
@@ -3381,18 +3458,19 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       '</tr>';
     }).join('');
     updateRunSummary(taskKey);
+    renderRunFrieze(taskKey);
   }
   function updateRunSummary(taskKey){
-    const r=getRunsheet(taskKey); if(!r) return;
+    const st=getStint(taskKey); if(!st) return;
     const el=document.getElementById('rsSummary'); if(!el) return;
-    const lapSecs=r.laps.map(l=>{ const a=lapAutoSec(l); return a!=null?a:parseLapTime(l.laptime); });
+    const lapSecs=st.laps.map(l=>{ const a=lapAutoSec(l); return a!=null?a:parseLapTime(l.laptime); });
     const laptimes=lapSecs.filter(v=>v!=null);
     const best=laptimes.length?Math.min.apply(null,laptimes):null;
     const avg=laptimes.length?laptimes.reduce((a,b)=>a+b,0)/laptimes.length:null;
-    const bestSec=(f)=>{ const v=r.laps.map(l=>parseLapTime(l[f])).filter(x=>x!=null); return v.length?Math.min.apply(null,v):null; };
+    const bestSec=(f)=>{ const v=st.laps.map(l=>parseLapTime(l[f])).filter(x=>x!=null); return v.length?Math.min.apply(null,v):null; };
     const b1=bestSec('s1'),b2=bestSec('s2'),b3=bestSec('s3');
     const theo=(b1!=null&&b2!=null&&b3!=null)?(b1+b2+b3):null;
-    const consos=r.laps.map(l=>parseFloat(String(l.conso||'').replace(',','.'))).filter(v=>!isNaN(v));
+    const consos=st.laps.map(l=>parseFloat(String(l.conso||'').replace(',','.'))).filter(v=>!isNaN(v));
     const totalConso=consos.reduce((a,b)=>a+b,0);
     const consoLap=consos.length?(totalConso/consos.length):null;
     el.innerHTML='<span>Best: <b>'+fmtLapTime(best)+'</b></span>'+
@@ -3407,6 +3485,41 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const v=lapSecs[i];
       if(best!=null && v!=null && Math.abs(v-best)<1e-6) cell.classList.add('rs-best'); else cell.classList.remove('rs-best');
     });
+  }
+  function renderRunFrieze(taskKey){
+    const container=document.getElementById('rsFrieze'); if(!container) return;
+    const r=getRunsheet(taskKey); if(!r) return;
+    const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    let html='<div class="rs-frieze">';
+    r.stints.forEach((s,idx)=>{
+      const stats=stintStats(s);
+      const d=driverByName(s.driver); const col=d?d.color:'#888';
+      const cat=(d&&d.category)?d.category:'';
+      const tyre=s.tyreSet?tyreSetLabel(s.tyreSet):'—';
+      const sClock=parseClock(s.startTime);
+      const endClock=(sClock!=null)?sClock+stats.durationSec:null;
+      const grow=Math.max(1, stats.nLaps||1);
+      html+='<div class="rs-fr-stint'+(idx===r.activeStint?' active':'')+'" data-stint="'+idx+'" style="flex-grow:'+grow+';border-color:'+col+';">'+
+        '<div class="rs-fr-top" style="background:'+col+';"><b>'+(s.driver?esc(s.driver):'Pilote ?')+'</b>'+(cat?' <span class="rs-fr-cat">'+esc(cat)+'</span>':'')+'</div>'+
+        '<div class="rs-fr-body">'+
+          '<div class="rs-fr-line">'+(s.startTime?esc(s.startTime):'--:--')+' → '+(endClock!=null?fmtHMS(endClock):'--:--')+'</div>'+
+          '<div class="rs-fr-line"><b>'+fmtHMS(stats.durationSec)+'</b> · '+stats.nLaps+' tours</div>'+
+          '<div class="rs-fr-line">'+esc(tyre)+'</div>'+
+          '<div class="rs-fr-line small">Best '+fmtLapTime(stats.best)+' · Théo '+fmtLapTime(stats.theo)+'</div>'+
+          (stats.startFuel!=null?'<div class="rs-fr-line small">'+stats.startFuel.toFixed(1)+'→'+(stats.fuelEnd!=null?stats.fuelEnd.toFixed(1):'?')+' L</div>':'')+
+        '</div>'+
+      '</div>';
+      if(idx<r.stints.length-1){
+        const nx=r.stints[idx+1]; const nxClock=parseClock(nx.startTime);
+        const boxTime=(endClock!=null&&nxClock!=null)?(nxClock-endClock):null;
+        const drvChg=(nx.driver||'')!==(s.driver||''); const tyChg=(nx.tyreSet||'')!==(s.tyreSet||'');
+        const type=(drvChg||tyChg)?'Dri+Ty':'Fuel'; const pcol=(drvChg||tyChg)?'#c0392b':'#3aa0d0';
+        html+='<div class="rs-fr-pit"><div class="rs-fr-pit-bar" style="background:'+pcol+';"></div><div class="rs-fr-pit-lbl">'+type+'<br>'+(boxTime!=null?fmtHMS(boxTime):'box ?')+'</div></div>';
+      }
+    });
+    html+='</div>';
+    container.innerHTML=html;
+    container.querySelectorAll('.rs-fr-stint').forEach(el=>el.addEventListener('click', ()=>{ getRunsheet(taskKey).activeStint=Number(el.dataset.stint); saveState(); renderRunsheetTab(); }));
   }
   function wireRunStaticEvents(){
     const evtSel=document.getElementById('runEventSelect');
