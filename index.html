@@ -3431,15 +3431,15 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const fuelField=(f)=>{ const isStart=f.key==='startFuel'; const lbl=f.label+(isStart&&cellCap!=null?' (max '+cellCap+')':''); return '<div class="rs-field"><label>'+lbl+'</label><input type="text" class="rsFuelInput" data-key="'+f.key+'" value="'+esc(st.fuel[f.key])+'"></div>'; };
     const pressRow=(kind)=> RS_CORNERS.map(c=>'<td><input type="text" class="rsPressInput" data-kind="'+kind+'" data-corner="'+c+'" value="'+esc(st.press[kind][c])+'"></td>').join('');
     const tget=(c,pt)=>{ const o=st.tyreTemps[c]||{}; return o[pt]||''; };
-    const targetRow = RS_CORNERS.map(c=>{ const t=stintSetupTarget(st,c); return '<td class="rs-target-cell">'+(t!=null?t.toFixed(2):'-')+'</td>'; }).join('');
-    const bleedRow = RS_CORNERS.map(c=>{ const h=parseFloat(String(st.press.hot[c]||'').replace(',','.')); const t=stintSetupTarget(st,c); const b=(!isNaN(h)&&t!=null)?(h-t):null; return '<td class="rs-bleed-cell" data-corner="'+c+'">'+(b!=null?b.toFixed(2):'-')+'</td>'; }).join('');
+    const targetRow = RS_CORNERS.map(c=>{ const t=stintSetupTarget(st,c); return '<td class="rs-target-cell">'+(t!=null?Math.round(t):'-')+'</td>'; }).join('');
+    const bleedRow = RS_CORNERS.map(c=>{ const h=parseFloat(String(st.press.hot[c]||'').replace(',','.')); const t=stintSetupTarget(st,c); const b=(!isNaN(h)&&t!=null)?(h-t):null; return '<td class="rs-bleed-cell" data-corner="'+c+'">'+(b!=null?Math.round(b):'-')+'</td>'; }).join('');
     const tempRow=(pt)=> RS_CORNERS.map(c=>'<td><input type="text" class="rsTyreTemp" data-corner="'+c+'" data-pt="'+pt+'" value="'+esc(tget(c,pt))+'"></td>').join('');
     const discRow = RS_CORNERS.map(c=>'<td><input type="text" class="rsDiscTemp" data-corner="'+c+'" value="'+esc(st.discTemps[c]||'')+'"></td>').join('');
     let rightBox = '<div class="rs-box"><h5>Carburant</h5><div class="rs-cond-grid" style="grid-template-columns:repeat(2,1fr);">'+RS_FUEL.map(fuelField).join('')+'</div>'+
       '<h5 style="margin-top:12px;">Pressions / températures</h5>'+
       '<table class="rs-press-table"><thead><tr><th></th>'+RS_CORNERS.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+
-      '<tr><td>Cold (bar)</td>'+pressRow('cold')+'</tr>'+
-      '<tr><td>Hot (bar)</td>'+pressRow('hot')+'</tr>'+
+      '<tr><td>Cold (kPa)</td>'+pressRow('cold')+'</tr>'+
+      '<tr><td>Hot (kPa)</td>'+pressRow('hot')+'</tr>'+
       '<tr class="rs-ref-line"><td>Target</td>'+targetRow+'</tr>'+
       '<tr class="rs-ref-line"><td>Bleed</td>'+bleedRow+'</tr>'+
       '<tr class="rs-temp-head"><td colspan="5">Températures pneu (°C) — Int / Mil / Ext</td></tr>'+
@@ -3484,7 +3484,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const save=()=>saveState();
     box.querySelectorAll('.rsCondInput').forEach(el=>el.addEventListener('change', e=>{ getStint(taskKey).cond[e.target.dataset.key]=e.target.value; save(); }));
     box.querySelectorAll('.rsFuelInput').forEach(el=>el.addEventListener('change', e=>{ const s2=getStint(taskKey); if(e.target.dataset.key==='startFuel'){ const cap=runSetupCellCapacity(s2); let v=parseFloat(String(e.target.value).replace(',','.')); if(cap!=null && !isNaN(v) && v>cap){ v=cap; e.target.value=String(cap); alert('Start fuel limite a la cell capacity du setup associe ('+cap+' L).'); } } s2.fuel[e.target.dataset.key]=e.target.value; save(); renderLapsBody(taskKey); }));
-    box.querySelectorAll('.rsPressInput').forEach(el=>el.addEventListener('change', e=>{ const s2=getStint(taskKey); s2.press[e.target.dataset.kind][e.target.dataset.corner]=e.target.value; save(); if(e.target.dataset.kind==='hot'){ const c=e.target.dataset.corner; const cell=box.querySelector('.rs-bleed-cell[data-corner="'+c+'"]'); if(cell){ const h=parseFloat(String(e.target.value).replace(',','.')); const t=stintSetupTarget(s2,c); cell.textContent=(!isNaN(h)&&t!=null)?(h-t).toFixed(2):'-'; } } }));
+    box.querySelectorAll('.rsPressInput').forEach(el=>el.addEventListener('change', e=>{ const s2=getStint(taskKey); s2.press[e.target.dataset.kind][e.target.dataset.corner]=e.target.value; save(); if(e.target.dataset.kind==='hot'){ const c=e.target.dataset.corner; const cell=box.querySelector('.rs-bleed-cell[data-corner="'+c+'"]'); if(cell){ const h=parseFloat(String(e.target.value).replace(',','.')); const t=stintSetupTarget(s2,c); cell.textContent=(!isNaN(h)&&t!=null)?Math.round(h-t):'-'; } } }));
     box.querySelectorAll('.rsTyreTemp').forEach(el=>el.addEventListener('change', e=>{ const s2=getStint(taskKey); const c=e.target.dataset.corner; s2.tyreTemps[c]=s2.tyreTemps[c]||{}; s2.tyreTemps[c][e.target.dataset.pt]=e.target.value; save(); }));
     box.querySelectorAll('.rsDiscTemp').forEach(el=>el.addEventListener('change', e=>{ getStint(taskKey).discTemps[e.target.dataset.corner]=e.target.value; save(); }));
     box.querySelectorAll('.rsMetaInput').forEach(el=>el.addEventListener('change', e=>{ getStint(taskKey)[e.target.dataset.key]=e.target.value; save(); if(['name','setupId','driver','tyreSet','startTime'].indexOf(e.target.dataset.key)>=0) renderRunsheetTab(); }));
