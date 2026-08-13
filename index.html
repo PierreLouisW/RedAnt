@@ -269,6 +269,7 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .setup-field-grid .setup-field-row{margin-bottom:0;font-size:11px;}
 .setup-field-grid .setup-field-row label{flex:0 0 92px;font-size:11px;}
 .setup-field-grid .setup-field-row input,.setup-field-grid .setup-field-row select{font-size:11px;padding:3px 4px;}
+.setup-computed{font-weight:700;color:var(--accent);font-size:11px;padding:3px 4px;}
 @media (max-width:560px){.setup-field-grid{grid-template-columns:1fr;}}
 .setup-shared-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
 @media (max-width:900px){.setup-shared-grid{grid-template-columns:1fr;}}
@@ -4067,13 +4068,26 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {key:'thirdRearBump', label:'3rd Elem. Rear - Bump Rubber'}
   ];
   const SETUP_WEIGHTS_FIELDS = [
-    {key:'rake', label:'Rake (deg)'},
+    {key:'rake', label:'Rake (mm)'},
     {key:'elRollBalance', label:'El. Roll Balance (%)'},
     {key:'aeroBalance', label:'Aero Balance (%)'},
     {key:'totAeroLoad', label:'TOT Aero Load (Kg)'},
     {key:'totWeight', label:'TOT weight (Kg)'},
     {key:'stWdCrossWeight', label:'St. WD / Cross Weight (%)'}
   ];
+  // Champs calcules automatiquement (lecture seule) a partir des roues
+  const SETUP_COMPUTED_WEIGHTS = ['rake','totWeight','stWdCrossWeight'];
+  function computeSetupWeights(cornersObj){
+    const num=(x)=>{ const v=parseFloat(cval(x)); return isNaN(v)?null:v; };
+    const g=(c,f)=> (cornersObj && cornersObj[c]) ? num(cornersObj[c][f]) : null;
+    const cwFL=g('fl','cornerWeight'), cwFR=g('fr','cornerWeight'), cwRL=g('rl','cornerWeight'), cwRR=g('rr','cornerWeight');
+    const rhFL=g('fl','rhChassis'), rhFR=g('fr','rhChassis'), rhRL=g('rl','rhChassis'), rhRR=g('rr','rhChassis');
+    const r=(x,d)=> x==null ? '' : String(Math.round(x*Math.pow(10,d))/Math.pow(10,d));
+    let total=null; if(cwFL!=null&&cwFR!=null&&cwRL!=null&&cwRR!=null) total=cwFL+cwFR+cwRL+cwRR;
+    let cross=null; if(cwFL!=null&&cwRR!=null&&total) cross=(cwFL+cwRR)/total*100;
+    let rake=null; if(rhFL!=null&&rhFR!=null&&rhRL!=null&&rhRR!=null) rake=((rhRL+rhRR)/2)-((rhFL+rhFR)/2);
+    return {rake:r(rake,2), totWeight:r(total,1), stWdCrossWeight:r(cross,2)};
+  }
   // Groupes de disposition (box Avant / Arriere)
   const SETUP_FRONT_AXLE = ['arbDiameterFront','arbBladeFront','brakeSetFront','plankFront','divePlane'];
   const SETUP_REAR_AXLE = ['arbDiameterRear','arbBladeRear','brakeSetRear','plankRear','wingAngle','gurney','diffPreload'];
@@ -4294,6 +4308,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // Complete automatiquement RH measurement depuis RH chassis (et inversement), target + releve
     backfillRhConversion(e.corners);
     backfillRhConversion(e.readings.corners);
+    // Champs calcules (rake, total weight, cross weight) depuis les roues
+    const cwT = computeSetupWeights(e.corners);
+    const cwR = computeSetupWeights(e.readings.corners);
+    SETUP_COMPUTED_WEIGHTS.forEach(k=>{ e.weights[k]=cwT[k]; e.readings.weights[k]=cwR[k]; });
     return e;
   }
   // le relevé mécano diffère de la target (colore la case) : non vide et != target
@@ -4430,10 +4448,16 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     html += condBox();
     html += '<div class="setup-shared-box"><h5>Homologation / Poids / Resultats</h5><div class="setup-field-grid">';
     SETUP_WEIGHTS_FIELDS.forEach(f=>{
-      const opts = setupParamOpts(f.key);
-      const ctl = opts
-        ? '<select'+roSel+' class="setupWeightInput" data-field="'+f.key+'">'+paramOptionEls(opts, entry.weights[f.key])+'</select>'
-        : '<input type="text"'+ro+' class="setupWeightInput" data-field="'+f.key+'" value="'+esc(entry.weights[f.key])+'">';
+      let ctl;
+      if(SETUP_COMPUTED_WEIGHTS.indexOf(f.key)>=0){
+        const v = cval(entry.weights[f.key]);
+        ctl = '<span class="setup-computed" data-field="'+f.key+'" style="flex:1;">'+((v==null||v==='')?'-':v)+'</span>';
+      } else {
+        const opts = setupParamOpts(f.key);
+        ctl = opts
+          ? '<select'+roSel+' class="setupWeightInput" data-field="'+f.key+'">'+paramOptionEls(opts, entry.weights[f.key])+'</select>'
+          : '<input type="text"'+ro+' class="setupWeightInput" data-field="'+f.key+'" value="'+esc(entry.weights[f.key])+'">';
+      }
       html += '<div class="setup-field-row"><label>'+f.label+'</label>'+ctl+'</div>';
     });
     html += '</div></div>';
@@ -4462,6 +4486,15 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
           cors.forEach(cor=>{
             const upd = applyRhConversion(en.corners, cor, field);
             if(upd){ const el = container.querySelector('.setupFieldInput[data-corner="'+upd.corner+'"][data-field="'+upd.field+'"]'); if(el) el.value = upd.value; }
+          });
+        }
+        // Recalcul en direct des champs derives (rake / total / cross)
+        if(field==='cornerWeight' || field==='rhChassis' || field==='pushLength'){
+          const cw = computeSetupWeights(en.corners);
+          SETUP_COMPUTED_WEIGHTS.forEach(k=>{
+            en.weights[k]=cw[k];
+            const sp = container.querySelector('.setup-computed[data-field="'+k+'"]');
+            if(sp) sp.textContent = (cw[k]==null||cw[k]==='')?'-':cw[k];
           });
         }
         saveState();
@@ -4819,7 +4852,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // Cellule Param | Target | Releve, rendues 2 par ligne (6 colonnes)
     const releveTriple = (c)=> c
       ? ('<td class="setup-label">'+c.label+'</td><td class="setup-target">'+tval(c.target)+'</td>'+
-         '<td class="setup-releve-td'+(setupReleveDiff(c.target,c.releve)?' releve-diff':'')+'"><input type="text" class="setupReleveInput" '+c.attrs+' value="'+esc(c.releve)+'"></td>')
+         (c.readonly
+           ? '<td class="setup-target"'+(c.compKey?' data-comp="'+c.compKey+'"':'')+'>'+tval(c.releve)+'</td>'
+           : '<td class="setup-releve-td'+(setupReleveDiff(c.target,c.releve)?' releve-diff':'')+'"><input type="text" class="setupReleveInput" '+c.attrs+' value="'+esc(c.releve)+'"></td>'))
       : '<td></td><td></td><td></td>';
     const pairReleveRows = (cells)=>{
       let h='';
@@ -4874,7 +4909,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     html += '<div class="setup-shared-box"><h5>Session Conditions (lecture seule)</h5><div class="setup-field-grid">';
     SETUP_CONDITION_FIELDS.forEach(f=>{ html += '<div class="setup-field-row"><label>'+f.label+'</label><span class="small">'+tval(entry.conditions[f.key])+'</span></div>'; });
     html += '</div></div>';
-    const wCells = SETUP_WEIGHTS_FIELDS.map(f=>({label:f.label, target:cval(entry.weights[f.key]), releve:entry.readings.weights[f.key]||'', attrs:'data-sec="weight" data-field="'+f.key+'"'}));
+    const wCells = SETUP_WEIGHTS_FIELDS.map(f=>{ const comp=SETUP_COMPUTED_WEIGHTS.indexOf(f.key)>=0; return {label:f.label, target:cval(entry.weights[f.key]), releve:entry.readings.weights[f.key]||'', attrs:'data-sec="weight" data-field="'+f.key+'"', readonly:comp, compKey:comp?f.key:null}; });
     html += '<div class="setup-shared-box"><h5>Homologation / Poids / Resultats</h5><table class="setup-corner-table setup-releve-table">'+rHead+'<tbody>'+pairReleveRows(wCells)+'</tbody></table></div>';
     html += '</div>';
 
@@ -4933,6 +4968,15 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
                   else el.parentElement.classList.remove('releve-diff');
                 }
               }
+            });
+          }
+          // Recalcul en direct des champs derives du releve (rake / total / cross)
+          if(field==='cornerWeight' || field==='rhChassis' || field==='pushLength'){
+            const cw = computeSetupWeights(en.readings.corners);
+            SETUP_COMPUTED_WEIGHTS.forEach(k=>{
+              en.readings.weights[k]=cw[k];
+              const sp = box.querySelector('[data-comp="'+k+'"]');
+              if(sp) sp.textContent = (cw[k]==null||cw[k]==='')?'-':cw[k];
             });
           }
         }
