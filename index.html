@@ -281,6 +281,11 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .setup-compare-table td{padding:4px 8px;border-bottom:1px solid var(--border);}
 .setup-diff-row{background:rgba(192,57,43,0.15);}
 .setup-diff-row td{font-weight:600;}
+.setup-corner-table th.releve-col,.setup-weights-table th.releve-col{color:var(--accent);}
+.setup-corner-table td.setup-target,.setup-weights-table td.setup-target{color:var(--muted);white-space:nowrap;}
+td.releve-diff{background:rgba(230,160,30,0.28);}
+td.releve-diff input{font-weight:700;color:#e6a01e;}
+.setup-setdown-bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
 .setup-hist-scroll{overflow-x:auto;margin-top:12px;border:1px solid var(--border);border-radius:8px;}
 .setup-hist-cols{font-size:11px;min-width:100%;}
 .setup-hist-cols th{text-align:left;padding:6px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);vertical-align:top;white-space:nowrap;}
@@ -4030,7 +4035,20 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!e.conditions) e.conditions = {};
     SETUP_CONDITION_FIELDS.forEach(f=>{ e.conditions[f.key] = cval(e.conditions[f.key]); });
     if(!e.phase) e.phase = 'setup';
+    // Relevé mécano (setdown) : valeurs mesurées sur la voiture, en parallèle des Target
+    if(!e.readings || typeof e.readings!=='object') e.readings = {};
+    if(!e.readings.corners) e.readings.corners = {};
+    SETUP_CORNERS.forEach(c=>{ e.readings.corners[c.key] = e.readings.corners[c.key]||{}; SETUP_FIELDS.forEach(f=>{ if(e.readings.corners[c.key][f.key]==null) e.readings.corners[c.key][f.key]=''; }); });
+    if(!e.readings.shared) e.readings.shared = {};
+    SETUP_SHARED_FIELDS.forEach(f=>{ if(e.readings.shared[f.key]==null) e.readings.shared[f.key]=''; });
+    if(!e.readings.weights) e.readings.weights = {};
+    SETUP_WEIGHTS_FIELDS.forEach(f=>{ if(e.readings.weights[f.key]==null) e.readings.weights[f.key]=''; });
     return e;
+  }
+  // le relevé mécano diffère de la target (colore la case) : non vide et != target
+  function setupReleveDiff(target, releve){
+    const t=(target==null?'':String(target)).trim(), r=(releve==null?'':String(releve)).trim();
+    return r!=='' && r!==t;
   }
 
   let setupUnlocked = false;
@@ -4371,12 +4389,120 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     });
   }
 
-  // Vue lecture seule du setup dans le To Do (pour les mecanos)
+  // Vue setdown du mecano dans le To Do : Target (lecture seule) + Releve (editable) + couleur si different
   function renderSetupReadonlyForTodo(){
     const box = document.getElementById('todoSetupContent');
     if(!box) return;
-    box.innerHTML = '<div class="small" style="margin-bottom:10px;">Setup de la session (lecture seule). L\'edition, l\'historique et la comparaison se font dans l\'onglet <b>Setup</b>.</div><div id="todoSetupRO"></div>';
-    renderSetupEditView(document.getElementById('todoSetupRO'), selectedTodoContext.taskKey, true);
+    const taskKey = selectedTodoContext.taskKey;
+    if(!taskKey){
+      box.innerHTML = '<div class="small">Selectionnez une session/seance ci-dessus pour relever le setdown.</div>';
+      return;
+    }
+    const entry = getSetupEntry(taskKey);
+    const esc = (x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const tval = (x)=>{ const v=cval(x); return (v==null||v==='')?'-':v; };
+
+    let html = '';
+    html += '<div class="setup-setdown-bar">'+
+      '<button class="primary" id="setupSetdownSaveBtn" style="margin-top:0;">Enregistrer le setdown</button>'+
+      '<span class="small">Target = setup prevu (lecture seule). Relevez les valeurs mesurees sur la voiture ; l\'ecart se colore. L\'enregistrement cree une entree <b>Setdown</b> comparable dans l\'onglet Setup.</span>'+
+    '</div>';
+
+    html += '<div class="setup-banner">SETDOWN - RELEVE MECANO</div>';
+    html += '<div class="setup-corners-grid" style="margin-top:12px;">';
+    SETUP_CORNERS.forEach(c=>{
+      html += '<div class="setup-corner-card">';
+      html += '<div class="setup-banner" style="border-radius:0;">'+c.label+'</div>';
+      html += '<table class="setup-corner-table"><thead><tr><th>Parametre</th><th>Target</th><th class="releve-col">Releve</th></tr></thead><tbody>';
+      SETUP_FIELDS.forEach(f=>{
+        const target = cval(entry.corners[c.key][f.key]);
+        const releve = entry.readings.corners[c.key][f.key]||'';
+        const diff = setupReleveDiff(target, releve);
+        html += '<tr><td class="setup-label">'+f.label+(f.unit?' ['+f.unit+']':'')+'</td>'+
+          '<td class="setup-target">'+tval(target)+'</td>'+
+          '<td class="'+(diff?'releve-diff':'')+'"><input type="text" class="setupReleveInput" data-sec="corner" data-corner="'+c.key+'" data-field="'+f.key+'" value="'+esc(releve)+'"></td></tr>';
+      });
+      html += '</tbody></table></div>';
+    });
+    html += '</div>';
+
+    const sharedTable = (title, fields, sec)=>{
+      let h = '<div class="setup-shared-box"><h5>'+title+'</h5>';
+      h += '<table class="setup-weights-table"><thead><tr><th>Parametre</th><th>Target</th><th class="releve-col">Releve</th></tr></thead><tbody>';
+      fields.forEach(f=>{
+        const target = cval(sec==='shared'?entry.shared[f.key]:entry.weights[f.key]);
+        const releve = (sec==='shared'?entry.readings.shared[f.key]:entry.readings.weights[f.key])||'';
+        const diff = setupReleveDiff(target, releve);
+        h += '<tr><td class="setup-label">'+f.label+'</td>'+
+          '<td class="setup-target">'+tval(target)+'</td>'+
+          '<td class="'+(diff?'releve-diff':'')+'"><input type="text" class="setupReleveInput" data-sec="'+sec+'" data-field="'+f.key+'" value="'+esc(releve)+'"></td></tr>';
+      });
+      return h+'</tbody></table></div>';
+    };
+    html += '<div class="setup-shared-grid">';
+    html += sharedTable('Reglages partages', SETUP_SHARED_FIELDS, 'shared');
+    html += sharedTable('Poids / Resultats', SETUP_WEIGHTS_FIELDS, 'weight');
+    html += '<div class="setup-shared-box"><h5>Conditions (lecture seule)</h5>';
+    SETUP_CONDITION_FIELDS.forEach(f=>{
+      html += '<div class="setup-field-row"><label>'+f.label+'</label><span class="small">'+tval(entry.conditions[f.key])+'</span></div>';
+    });
+    html += '</div>';
+    html += '</div>';
+
+    box.innerHTML = html;
+
+    box.querySelectorAll('.setupReleveInput').forEach(inp=>{
+      inp.addEventListener('input', (e)=>{
+        const t = e.target, sec=t.dataset.sec, field=t.dataset.field;
+        let target;
+        if(sec==='corner') target = cval(entry.corners[t.dataset.corner][field]);
+        else if(sec==='shared') target = cval(entry.shared[field]);
+        else target = cval(entry.weights[field]);
+        const cell = t.parentElement;
+        if(setupReleveDiff(target, t.value)) cell.classList.add('releve-diff');
+        else cell.classList.remove('releve-diff');
+      });
+      inp.addEventListener('change', (e)=>{
+        const t = e.target, sec=t.dataset.sec, field=t.dataset.field, val=t.value;
+        const en = getSetupEntry(taskKey);
+        if(sec==='corner') en.readings.corners[t.dataset.corner][field] = val;
+        else if(sec==='shared') en.readings.shared[field] = val;
+        else en.readings.weights[field] = val;
+        saveState();
+      });
+    });
+    const saveBtn = box.querySelector('#setupSetdownSaveBtn');
+    if(saveBtn) saveBtn.addEventListener('click', ()=> saveSetdownSnapshot(taskKey));
+  }
+
+  // Enregistre un snapshot Setdown a partir du releve mecano (valeur = releve si fourni, sinon target)
+  function saveSetdownSnapshot(taskKey){
+    if(!taskKey){ alert('Choisissez une session/seance avant d\'enregistrer.'); return; }
+    if(!Array.isArray(STATE.setupSnapshots)) STATE.setupSnapshots = [];
+    const entry = getSetupEntry(taskKey);
+    const pick = (releve, target)=> (releve!=null && String(releve).trim()!=='') ? releve : cval(target);
+    const corners = {};
+    SETUP_CORNERS.forEach(c=>{ corners[c.key]={}; SETUP_FIELDS.forEach(f=>{ corners[c.key][f.key] = pick(entry.readings.corners[c.key][f.key], entry.corners[c.key][f.key]); }); });
+    const shared = {};
+    SETUP_SHARED_FIELDS.forEach(f=>{ shared[f.key] = pick(entry.readings.shared[f.key], entry.shared[f.key]); });
+    const weights = {};
+    SETUP_WEIGHTS_FIELDS.forEach(f=>{ weights[f.key] = pick(entry.readings.weights[f.key], entry.weights[f.key]); });
+    const snap = {
+      id: (STATE.setupSnapshots.reduce((m,s)=>Math.max(m,s.id||0),0))+1,
+      savedAt: Date.now(),
+      eventId: String(taskKey).split('::')[0],
+      taskKey: taskKey,
+      phase: 'setdown',
+      corners: corners,
+      shared: shared,
+      weights: weights,
+      conditions: JSON.parse(JSON.stringify(entry.conditions||{})),
+      target: {corners:JSON.parse(JSON.stringify(entry.corners)), shared:JSON.parse(JSON.stringify(entry.shared)), weights:JSON.parse(JSON.stringify(entry.weights))}
+    };
+    STATE.setupSnapshots.push(snap);
+    activeSetupView = 'history';
+    saveState();
+    alert('Setdown enregistre dans l\'historique. Comparez-le dans l\'onglet Setup.');
   }
 
   function renderSetupLockScreen(){
