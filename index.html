@@ -4086,13 +4086,48 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     let total=null; if(cwFL!=null&&cwFR!=null&&cwRL!=null&&cwRR!=null) total=cwFL+cwFR+cwRL+cwRR;
     let cross=null; if(cwFL!=null&&cwRR!=null&&total) cross=(cwFL+cwRR)/total*100;
     let rake=null; if(rhFL!=null&&rhFR!=null&&rhRL!=null&&rhRR!=null) rake=((rhRL+rhRR)/2)-((rhFL+rhFR)/2);
-    return {rake:r(rake,2), totWeight:r(total,1), stWdCrossWeight:r(cross,2)};
+    return {rake:r(rake,2), totWeight:r(total,1), stWdCrossWeight:(cross==null?'':cross.toFixed(2))};
   }
   // Groupes de disposition (box Avant / Arriere)
   const SETUP_FRONT_AXLE = ['arbDiameterFront','arbBladeFront','brakeSetFront','plankFront','divePlane'];
   const SETUP_REAR_AXLE = ['arbDiameterRear','arbBladeRear','brakeSetRear','plankRear','wingAngle','gurney','diffPreload'];
   const SETUP_THIRD_FRONT = ['thirdFrontSpring','thirdFrontPreload','thirdFrontSprGap','thirdFrontPacGap','thirdFrontBump'];
   const SETUP_THIRD_REAR = ['thirdRearSpring','thirdRearPreload','thirdRearSprGap','thirdRearPacGap','thirdRearBump'];
+  // Champs "Voiture / Divers" (stockes avec les champs partages)
+  const SETUP_MISC_FIELDS = [
+    {key:'cellCapacity', label:'Cell capacity (fuel max)', unit:'L'},
+    {key:'suspKinFront', label:'Suspension kinematics Front'},
+    {key:'suspKinRear', label:'Suspension kinematics Rear'},
+    {key:'rampsPower', label:'Ramps power'},
+    {key:'rampsCoast', label:'Ramps coast'},
+    {key:'noFacesSides', label:'No. faces / sides'},
+    {key:'gearboxBlanking', label:'Gearbox blanking'},
+    {key:'clutchCylinder', label:'Clutch cylinder'},
+    {key:'waterBlankingTop', label:'Water blanking top'},
+    {key:'waterBlankingBottom', label:'Water blanking bottom'},
+    {key:'brakeMcylFront', label:'Brake MCyl Front'},
+    {key:'brakeMcylRear', label:'Brake MCyl Rear'},
+    {key:'brakeBlanking', label:'Brake blanking'},
+    {key:'brakeBias', label:'Brake bias'},
+    {key:'tractionControl', label:'Traction control'},
+    {key:'splitterHeight', label:'Splitter height', unit:'mm'},
+    {key:'diffusorHeight', label:'Diffusor height', unit:'mm'},
+    {key:'diffusorWidth', label:'Diffusor width', unit:'mm'},
+    {key:'ballastNose', label:'Ballast Nose', unit:'kg'},
+    {key:'ballastCockpit', label:'Ballast Cockpit', unit:'kg'},
+    {key:'ballastGearbox', label:'Ballast Gearbox', unit:'kg'}
+  ];
+  SETUP_MISC_FIELDS.forEach(f=>{ SETUP_SHARED_FIELDS.push(f); });
+  const SETUP_MISC_GROUPS = [
+    {title:'Fuel', keys:['cellCapacity']},
+    {title:'Suspension kinematics', keys:['suspKinFront','suspKinRear']},
+    {title:'Differential / Transmission', keys:['rampsPower','rampsCoast','noFacesSides','gearboxBlanking','clutchCylinder']},
+    {title:'Cooling', keys:['waterBlankingTop','waterBlankingBottom']},
+    {title:'Brakes', keys:['brakeMcylFront','brakeMcylRear','brakeBlanking','brakeBias']},
+    {title:'Electronics', keys:['tractionControl']},
+    {title:'Aero', keys:['splitterHeight','diffusorHeight','diffusorWidth']},
+    {title:'Ballast', keys:['ballastNose','ballastCockpit','ballastGearbox']}
+  ];
   const SHARED_FIELD_BY_KEY = {};
   SETUP_SHARED_FIELDS.forEach(f=>{ SHARED_FIELD_BY_KEY[f.key]=f; });
   const FIELD_BY_KEY = {};
@@ -4443,6 +4478,16 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     html += axleBox('REAR', SETUP_REAR_AXLE, '3rd Element Rear', SETUP_THIRD_REAR);
     html += '</div>';
 
+    // 3b) Voiture / Divers (sous-sections)
+    let miscRows = '';
+    SETUP_MISC_GROUPS.forEach(g=>{
+      miscRows += '<tr class="setup-subhead"><td colspan="4">'+g.title+'</td></tr>';
+      miscRows += pairRows(axleCells(g.keys, false));
+    });
+    html += '<div class="setup-axle-center" style="margin-top:16px;"><div class="setup-corner-card" style="max-width:760px;">'+
+      '<div class="setup-banner" style="border-radius:0;">VOITURE / DIVERS</div>'+
+      '<table class="setup-corner-table"><tbody>'+miscRows+'</tbody></table></div></div>';
+
     // 3) Conditions + Homologation / Poids / Resultats
     html += '<div class="setup-shared-grid" style="margin-top:16px;">';
     html += condBox();
@@ -4696,6 +4741,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       html += '</div>';
       // REAR
       html += '<div class="setup-axle-center" style="margin-top:16px;">'+axleCmpBox('REAR', SETUP_REAR_AXLE, '3rd Element Rear', SETUP_THIRD_REAR)+'</div>';
+      // Voiture / Divers
+      let miscCmp = '';
+      SETUP_MISC_GROUPS.forEach(g=>{
+        miscCmp += '<tr class="setup-subhead"><td colspan="6">'+g.title+'</td></tr>';
+        miscCmp += pairCmp(g.keys.map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return {label:f.label+(f.unit?' ['+f.unit+']':''), v1:sV(snapA,k), v2:sV(snapB,k)}; }));
+      });
+      html += '<div class="setup-axle-center" style="margin-top:16px;"><div class="setup-corner-card" style="max-width:760px;"><div class="setup-banner" style="border-radius:0;">VOITURE / DIVERS</div><table class="setup-corner-table setup-cmp-table">'+cHead+'<tbody>'+miscCmp+'</tbody></table></div></div>';
       // Conditions + Resultats
       html += '<div class="setup-shared-grid" style="margin-top:16px;">';
       let condRows=''; SETUP_CONDITION_FIELDS.forEach(f=>{ condRows += '<tr>'+cmpTriple(f.label, condV(snapA,f.key), condV(snapB,f.key))+'</tr>'; });
@@ -4751,8 +4803,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // Arriere
     html += box('Arriere (essieu)', SETUP_REAR_AXLE.filter(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return !(f.source==='plank'||f.source==='brake'); }).map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return rowShared(k, f.label+(f.unit?' ['+f.unit+']':'')); }).join('') +
       SETUP_THIRD_REAR.map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return rowShared(k, '3rd - '+f.label.replace(/^3rd Elem\. Rear - /,'')); }).join(''));
-    // Poids / resultats
-    html += box('Homologation / Poids / Resultats', SETUP_WEIGHTS_FIELDS.map(f=>rowShared(f.key, f.label)).join(''));
+    // Poids / resultats (rake/total/cross sont calcules, non listes ici)
+    html += box('Homologation / Poids / Resultats', SETUP_WEIGHTS_FIELDS.filter(f=>SETUP_COMPUTED_WEIGHTS.indexOf(f.key)<0).map(f=>rowShared(f.key, f.label)).join(''));
+    // Voiture / Divers
+    html += box('Voiture / Divers', SETUP_MISC_FIELDS.map(f=>rowShared(f.key, f.label+(f.unit?' ['+f.unit+']':''))).join(''));
 
     // Ride height : table d'equivalence RH chassis <-> RH measurement (conversion auto)
     const rhRow = (axle, label)=>{
@@ -4903,6 +4957,16 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
     // REAR
     html += '<div class="setup-axle-center" style="margin-top:16px;">'+axleReleveBox('REAR', SETUP_REAR_AXLE, '3rd Element Rear', SETUP_THIRD_REAR)+'</div>';
+
+    // Voiture / Divers (target + releve)
+    let miscRel = '';
+    SETUP_MISC_GROUPS.forEach(g=>{
+      miscRel += '<tr class="setup-subhead"><td colspan="6">'+g.title+'</td></tr>';
+      miscRel += pairReleveRows(g.keys.map(k=>sharedCell(k,false)));
+    });
+    html += '<div class="setup-axle-center" style="margin-top:16px;"><div class="setup-corner-card" style="max-width:760px;">'+
+      '<div class="setup-banner" style="border-radius:0;">VOITURE / DIVERS</div>'+
+      '<table class="setup-corner-table setup-releve-table">'+rHead+'<tbody>'+miscRel+'</tbody></table></div></div>';
 
     // Conditions (lecture seule) + Resultats (avec releve)
     html += '<div class="setup-shared-grid" style="margin-top:16px;">';
