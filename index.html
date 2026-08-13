@@ -304,6 +304,11 @@ td.releve-diff input{font-weight:700;color:#e6a01e;}
 .setup-cmp-table td.setup-target{text-align:center;font-size:10px;min-width:44px;}
 .setup-cmp-table td.releve-diff{background:rgba(230,160,30,0.28);font-weight:700;color:#e6a01e;}
 .setup-setdown-bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
+.setdown-banner{background:#7a1f1f;border:1px solid #c0392b;border-radius:8px;padding:10px 12px;margin-bottom:12px;color:#fff;}
+.setdown-banner .sb-title{font-weight:800;font-size:13px;margin-bottom:6px;letter-spacing:.3px;}
+.setdown-banner .sb-item{font-size:12px;padding:2px 0;border-top:1px solid rgba(255,255,255,.12);}
+.setdown-banner .sb-item:first-of-type{border-top:none;}
+.setdown-banner .sb-fix{font-weight:700;color:#ffd27a;}
 .lr-link-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap;cursor:pointer;}
 .lr-link-toggle input{width:auto;flex:0 0 auto;margin:0;}
 .setup-hist-scroll{overflow-x:auto;margin-top:12px;border:1px solid var(--border);border-radius:8px;}
@@ -1178,6 +1183,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!data.setupParamPresetClicks){
       ['lsb','hsb','lsr','hsr'].forEach(k=>{ if(!data.setupParamOptions[k]) data.setupParamOptions[k] = ['1-40']; });
       data.setupParamPresetClicks = true;
+    }
+    // Regles d'ajustement pour le bandeau de corrections mecano : { fieldKey: {step, label} }
+    if(!data.setupCorrections || typeof data.setupCorrections!=='object') data.setupCorrections = {};
+    if(!data.setupCorrPreset){
+      // exemple : camber ajuste par shim (2mm -> 0.5 deg)
+      if(!data.setupCorrections.camber) data.setupCorrections.camber = {step:0.5, label:'shim 2mm'};
+      data.setupCorrPreset = true;
     }
     // Table d'equivalence RH chassis <-> RH measurement (par essieu), pour conversion auto
     if(!data.rhConversion || typeof data.rhConversion!=='object') data.rhConversion = {front:[], rear:[]};
@@ -4111,6 +4123,47 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       else if(meas!=='' && chassis===''){ const ch=rhMeasureToChassis(axle, meas); if(ch!=null) cc.rhChassis=fmtParamNum(ch); }
     });
   }
+  // prefixe Av/Ar pour un champ partage (pour le bandeau de corrections)
+  function sharedAxlePrefix(key){
+    if(SETUP_FRONT_AXLE.indexOf(key)>=0 || SETUP_THIRD_FRONT.indexOf(key)>=0) return 'Av';
+    if(SETUP_REAR_AXLE.indexOf(key)>=0 || SETUP_THIRD_REAR.indexOf(key)>=0) return 'Ar';
+    return '';
+  }
+  // texte de correction pour un ecart mesure->cible (avec regle d'ajustement si definie)
+  function describeCorrection(prefix, field, target, releve){
+    const t = String(cval(target)).trim(), r = String(releve==null?'':releve).trim();
+    const head = (prefix?prefix+' ':'') + field.label + (field.unit?' ['+field.unit+']':'');
+    let s = head + ' : ' + r + ' → ' + t;
+    const rule = STATE.setupCorrections && STATE.setupCorrections[field.key];
+    if(rule && rule.step){
+      const d = parseFloat(t) - parseFloat(r);
+      if(!isNaN(d)){
+        const units = d / rule.step;
+        const n = Math.round(units*100)/100;
+        if(Math.abs(n) > 0.001){
+          const verb = n>0 ? 'ajouter' : 'retirer';
+          s += '  → <span class="sb-fix">'+verb+' '+fmtParamNum(Math.abs(n))+' × '+(rule.label||'')+'</span>';
+        }
+      }
+    }
+    return s;
+  }
+  // liste des corrections a faire (mesure != cible, valeurs non vides) : roues + essieux
+  function setdownCorrections(entry){
+    const items = [];
+    const diff = (a,b)=>{ const x=String(cval(a)).trim(), y=String(b==null?'':b).trim(); return x!=='' && y!=='' && x!==y; };
+    SETUP_CORNERS.forEach(c=>{
+      SETUP_FIELDS.forEach(f=>{
+        const tg = entry.corners[c.key][f.key], rl = entry.readings.corners[c.key][f.key];
+        if(diff(tg, rl)) items.push(describeCorrection(c.label, f, tg, rl));
+      });
+    });
+    SETUP_SHARED_FIELDS.forEach(f=>{
+      const tg = entry.shared[f.key], rl = entry.readings.shared[f.key];
+      if(diff(tg, rl)) items.push(describeCorrection(sharedAxlePrefix(f.key), f, tg, rl));
+    });
+    return items;
+  }
   // valeurs disponibles definies pour un parametre (liste deroulante), sinon null
   function setupParamOpts(key){
     const o = STATE.setupParamOptions && STATE.setupParamOptions[key];
@@ -4626,14 +4679,17 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const esc = (x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
     const row = (key, label)=>{
       const vals = (STATE.setupParamOptions[key]||[]).join(' ; ');
-      return '<div class="setup-field-row" style="max-width:560px;"><label style="flex:0 0 210px;">'+label+'</label>'+
-        '<input type="text" class="setupParamOptInput" data-key="'+key+'" value="'+esc(vals)+'" placeholder="ex: 13 ; 14 ; 14.5  ou  1-40"></div>';
+      const corr = STATE.setupCorrections[key];
+      const corrStr = (corr && corr.step) ? (corr.label||'')+' = '+corr.step : '';
+      return '<div class="setup-field-row" style="max-width:760px;"><label style="flex:0 0 200px;">'+label+'</label>'+
+        '<input type="text" class="setupParamOptInput" data-key="'+key+'" value="'+esc(vals)+'" placeholder="valeurs: 13 ; 14  ou  1-40" style="flex:1;">'+
+        '<input type="text" class="setupCorrInput" data-key="'+key+'" value="'+esc(corrStr)+'" placeholder="ajustement: shim 2mm = 0.5" style="flex:1;"></div>';
     };
     const box = (title, rows)=> '<div class="setup-shared-box" style="margin-bottom:14px;"><h5>'+title+'</h5>'+rows+'</div>';
 
-    let html = '<p class="small">Definissez les valeurs disponibles de chaque parametre, separees par <b>;</b> . '+
-      'Pour une suite de valeurs, utilisez une <b>plage</b> : <code>1-40</code> (1 a 40) ou <code>0-10:0.5</code> (pas de 0.5). '+
-      'Les parametres renseignes deviennent des <b>listes deroulantes</b> dans l\'onglet Editer (une valeur hors-liste deja saisie reste conservee). Laissez vide pour une saisie libre.</p>';
+    let html = '<p class="small">Colonne 1 = <b>valeurs disponibles</b> (separees par <b>;</b>, ou plage <code>1-40</code> / <code>0-10:0.5</code>) -> liste deroulante dans Editer. '+
+      'Colonne 2 = <b>ajustement</b> pour le bandeau de corrections du mecano, au format <code>libelle = pas</code> (ex. <code>shim 2mm = 0.5</code> : un shim 2mm change la valeur de 0.5). '+
+      'Le mecano voit alors "ajouter/retirer N × libelle" quand sa mesure differe de la cible. Mettez un pas negatif si l\'ajout diminue la valeur. Laissez vide si non applicable.</p>';
 
     // Roue (une seule config, appliquee aux 4 roues)
     html += box('Roue (applique aux 4 roues)', SETUP_FIELDS.map(f=>row(f.key, f.label+(f.unit?' ['+f.unit+']':''))).join(''));
@@ -4663,6 +4719,18 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         const key = e.target.dataset.key;
         const arr = e.target.value.split(/[;,\n]/).map(s=>s.trim()).filter(s=>s!=='');
         if(arr.length) STATE.setupParamOptions[key] = arr; else delete STATE.setupParamOptions[key];
+        saveState();
+      });
+    });
+    container.querySelectorAll('.setupCorrInput').forEach(inp=>{
+      inp.addEventListener('change', (e)=>{
+        const key = e.target.dataset.key;
+        const v = e.target.value.trim();
+        const eq = v.lastIndexOf('=');
+        const label = eq>=0 ? v.slice(0,eq).trim() : '';
+        const step = eq>=0 ? parseFloat(v.slice(eq+1).trim()) : NaN;
+        if(v!=='' && !isNaN(step) && step!==0) STATE.setupCorrections[key] = {step:step, label:label};
+        else delete STATE.setupCorrections[key];
         saveState();
       });
     });
@@ -4752,6 +4820,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     };
 
     let html = '';
+    html += '<div id="setdownBanner"></div>';
     html += '<div class="setup-setdown-bar">'+
       '<button class="primary" id="setupSetdownSaveBtn" style="margin-top:0;">Enregistrer le setdown</button>'+
       '<label class="lr-link-toggle"><input type="checkbox" id="setupLinkLRToggle"'+(STATE.setupLinkLR?' checked':'')+'> Lier G/D (recopie auto)</label>'+
@@ -4791,6 +4860,15 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     html += '</div>';
 
     box.innerHTML = html;
+
+    const updateSetdownBanner = ()=>{
+      const el = document.getElementById('setdownBanner'); if(!el) return;
+      const items = setdownCorrections(entry);
+      el.innerHTML = items.length
+        ? '<div class="setdown-banner"><div class="sb-title">⚠ Corrections a faire ('+items.length+') — mesure ≠ cible</div>'+items.map(i=>'<div class="sb-item">'+i+'</div>').join('')+'</div>'
+        : '';
+    };
+    updateSetdownBanner();
 
     box.querySelectorAll('.setupReleveInput').forEach(inp=>{
       inp.addEventListener('input', (e)=>{
@@ -4841,6 +4919,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         }
         else if(sec==='shared') en.readings.shared[field] = val;
         else en.readings.weights[field] = val;
+        updateSetdownBanner();
         saveState();
       });
     });
