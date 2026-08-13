@@ -1166,6 +1166,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       if(!data.setupParamOptions.arbDiameterRear) data.setupParamOptions.arbDiameterRear = ['13','14','14.5'];
       data.setupParamPreset = true;
     }
+    // Clicks amortisseurs (plage 1-40 par defaut, modifiable en 1-50 dans l'onglet Parametres)
+    if(!data.setupParamPresetClicks){
+      ['lsb','hsb','lsr','hsr'].forEach(k=>{ if(!data.setupParamOptions[k]) data.setupParamOptions[k] = ['1-40']; });
+      data.setupParamPresetClicks = true;
+    }
     return data;
   }
 
@@ -4043,11 +4048,28 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const o = STATE.setupParamOptions && STATE.setupParamOptions[key];
     return (Array.isArray(o) && o.length) ? o : null;
   }
-  // <option> pour une liste de valeurs, en gardant la valeur courante meme hors liste
+  // developpe les jetons en valeurs reelles : "1-40" -> 1..40, "0-10:0.5" -> pas de 0.5, sinon valeur litterale
+  function fmtParamNum(v){ return (Math.round(v*1000)/1000).toString(); }
+  function expandParamValues(tokens){
+    const out = [];
+    (tokens||[]).forEach(tok=>{
+      const s = String(tok).trim();
+      const m = s.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)(?:\s*:\s*(\d+(?:\.\d+)?))?$/);
+      if(m){
+        let a=parseFloat(m[1]), b=parseFloat(m[2]), step=m[3]?parseFloat(m[3]):1;
+        if(!(step>0)) step=1;
+        if(a<=b){ for(let v=a; v<=b+1e-9; v+=step) out.push(fmtParamNum(v)); }
+        else { for(let v=a; v>=b-1e-9; v-=step) out.push(fmtParamNum(v)); }
+      } else if(s!=='') out.push(s);
+    });
+    return out.filter((v,i)=>out.indexOf(v)===i);
+  }
+  // <option> pour une liste de valeurs (plages developpees), en gardant la valeur courante meme hors liste
   function paramOptionEls(opts, val){
     const esc = (x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const vals = expandParamValues(opts);
     let o = '<option value="">(-)</option>'; let has=false;
-    opts.forEach(v=>{ const s=String(v); if(String(val)===s) has=true; o += '<option value="'+esc(s)+'"'+(String(val)===s?' selected':'')+'>'+s+'</option>'; });
+    vals.forEach(v=>{ const s=String(v); if(String(val)===s) has=true; o += '<option value="'+esc(s)+'"'+(String(val)===s?' selected':'')+'>'+s+'</option>'; });
     if(val!=null && String(val)!=='' && !has) o += '<option value="'+esc(val)+'" selected>'+val+' (hors liste)</option>';
     return o;
   }
@@ -4487,11 +4509,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const row = (key, label)=>{
       const vals = (STATE.setupParamOptions[key]||[]).join(' ; ');
       return '<div class="setup-field-row" style="max-width:560px;"><label style="flex:0 0 210px;">'+label+'</label>'+
-        '<input type="text" class="setupParamOptInput" data-key="'+key+'" value="'+esc(vals)+'" placeholder="ex: 13 ; 14 ; 14.5"></div>';
+        '<input type="text" class="setupParamOptInput" data-key="'+key+'" value="'+esc(vals)+'" placeholder="ex: 13 ; 14 ; 14.5  ou  1-40"></div>';
     };
     const box = (title, rows)=> '<div class="setup-shared-box" style="margin-bottom:14px;"><h5>'+title+'</h5>'+rows+'</div>';
 
-    let html = '<p class="small">Definissez les valeurs disponibles de chaque parametre, separees par <b>;</b> . Les parametres renseignes deviennent des <b>listes deroulantes</b> dans l\'onglet Editer (une valeur hors-liste deja saisie reste conservee). Laissez vide pour une saisie libre.</p>';
+    let html = '<p class="small">Definissez les valeurs disponibles de chaque parametre, separees par <b>;</b> . '+
+      'Pour une suite de valeurs, utilisez une <b>plage</b> : <code>1-40</code> (1 a 40) ou <code>0-10:0.5</code> (pas de 0.5). '+
+      'Les parametres renseignes deviennent des <b>listes deroulantes</b> dans l\'onglet Editer (une valeur hors-liste deja saisie reste conservee). Laissez vide pour une saisie libre.</p>';
 
     // Roue (une seule config, appliquee aux 4 roues)
     html += box('Roue (applique aux 4 roues)', SETUP_FIELDS.map(f=>row(f.key, f.label+(f.unit?' ['+f.unit+']':''))).join(''));
