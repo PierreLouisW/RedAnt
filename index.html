@@ -4162,16 +4162,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       return h + '</div>';
     };
 
-    // 1) Essieux : AVANT / ARRIERE (avec 3eme element integre)
-    html += '<div class="setup-banner">AVANT / ARRIERE</div>';
-    html += '<div class="setup-shared-grid" style="margin-top:12px;">';
-    html += axleBox('AVANT', SETUP_FRONT_AXLE, '3eme element avant', SETUP_THIRD_FRONT);
-    html += axleBox('ARRIERE', SETUP_REAR_AXLE, '3eme element arriere', SETUP_THIRD_REAR);
+    // 1) FRONT (essieu) au-dessus des roues
+    html += '<div class="setup-corners-grid" style="margin-top:12px;">';
+    html += axleBox('FRONT', SETUP_FRONT_AXLE, '3eme element avant', SETUP_THIRD_FRONT);
     html += '</div>';
 
     // 2) Roues (corners) - saisie a gauche recopiee a droite
-    html += '<div class="setup-banner" style="margin-top:16px;">ROUES (saisie gauche recopiee a droite)</div>';
-    html += '<div class="setup-corners-grid" style="margin-top:12px;">';
+    html += '<div class="setup-corners-grid" style="margin-top:16px;">';
     SETUP_CORNERS.forEach(c=>{
       html += '<div class="setup-corner-card">';
       html += '<div class="setup-banner" style="border-radius:0;">'+c.label+'</div>';
@@ -4182,6 +4179,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       });
       html += '</tbody></table></div>';
     });
+    html += '</div>';
+
+    // 3) REAR (essieu) apres les roues
+    html += '<div class="setup-corners-grid" style="margin-top:16px;">';
+    html += axleBox('REAR', SETUP_REAR_AXLE, '3eme element arriere', SETUP_THIRD_REAR);
     html += '</div>';
 
     // 3) Conditions + Homologation / Poids / Resultats
