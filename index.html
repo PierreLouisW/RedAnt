@@ -1158,6 +1158,14 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(typeof data.setupPassword!=='string') data.setupPassword = '';
     // Mot de passe Setup retire (acces gere plus tard par utilisateur) : on efface l'existant une fois
     if(!data.setupPasswordCleared){ data.setupPassword = ''; data.setupPasswordCleared = true; }
+    // Valeurs disponibles par parametre (listes deroulantes dans le setup) : { fieldKey: [valeurs] }
+    if(!data.setupParamOptions || typeof data.setupParamOptions!=='object') data.setupParamOptions = {};
+    // Exemple prerempli (anti roll bar diameter) - modifiable dans l'onglet Parametres
+    if(!data.setupParamPreset){
+      if(!data.setupParamOptions.arbDiameterFront) data.setupParamOptions.arbDiameterFront = ['13','14','14.5'];
+      if(!data.setupParamOptions.arbDiameterRear) data.setupParamOptions.arbDiameterRear = ['13','14','14.5'];
+      data.setupParamPreset = true;
+    }
     return data;
   }
 
@@ -4030,6 +4038,19 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   SETUP_SHARED_FIELDS.forEach(f=>{ SHARED_FIELD_BY_KEY[f.key]=f; });
   const FIELD_BY_KEY = {};
   SETUP_FIELDS.forEach(f=>{ FIELD_BY_KEY[f.key]=f; });
+  // valeurs disponibles definies pour un parametre (liste deroulante), sinon null
+  function setupParamOpts(key){
+    const o = STATE.setupParamOptions && STATE.setupParamOptions[key];
+    return (Array.isArray(o) && o.length) ? o : null;
+  }
+  // <option> pour une liste de valeurs, en gardant la valeur courante meme hors liste
+  function paramOptionEls(opts, val){
+    const esc = (x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    let o = '<option value="">(-)</option>'; let has=false;
+    opts.forEach(v=>{ const s=String(v); if(String(val)===s) has=true; o += '<option value="'+esc(s)+'"'+(String(val)===s?' selected':'')+'>'+s+'</option>'; });
+    if(val!=null && String(val)!=='' && !has) o += '<option value="'+esc(val)+'" selected>'+val+' (hors liste)</option>';
+    return o;
+  }
   const SETUP_CONDITION_FIELDS = [
     {key:'weather', label:'Weather', type:'select', options:['Dry','Wet']},
     {key:'driver', label:'Driver', type:'driver'},
@@ -4174,6 +4195,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const f = SHARED_FIELD_BY_KEY[key]; if(!f) return '';
       if(f.source==='plank') return '<select'+roSel+' class="setupSharedInput" data-field="'+key+'">'+setupPlankOptions(cval(entry.shared[key]))+'</select>';
       if(f.source==='brake') return '<select'+roSel+' class="setupSharedInput" data-field="'+key+'">'+setupBrakeOptions(cval(entry.shared[key]))+'</select>';
+      const opts = setupParamOpts(key);
+      if(opts) return '<select'+roSel+' class="setupSharedInput" data-field="'+key+'">'+paramOptionEls(opts, cval(entry.shared[key]))+'</select>';
       return '<input type="text"'+ro+' class="setupSharedInput" data-field="'+key+'" value="'+esc(entry.shared[key])+'">';
     };
     // Rendu de cellules {label,control} par 2 par ligne (tableau 4 colonnes)
@@ -4225,9 +4248,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       html += '<table class="setup-corner-table"><tbody>';
       SETUP_WHEEL_GROUPS.forEach(g=>{
         if(g.title) html += '<tr class="setup-subhead"><td colspan="4">'+g.title+'</td></tr>';
-        const cells = g.keys.map(k=>{ const f=FIELD_BY_KEY[k]; return {
+        const cells = g.keys.map(k=>{ const f=FIELD_BY_KEY[k]; const opts=setupParamOpts(k); return {
           label: f.label+(f.unit?' ['+f.unit+']':''),
-          control: '<input type="text"'+ro+' class="setupFieldInput" data-corner="'+c.key+'" data-field="'+k+'" value="'+esc(entry.corners[c.key][k])+'">'
+          control: opts
+            ? '<select'+roSel+' class="setupFieldInput" data-corner="'+c.key+'" data-field="'+k+'">'+paramOptionEls(opts, entry.corners[c.key][k])+'</select>'
+            : '<input type="text"'+ro+' class="setupFieldInput" data-corner="'+c.key+'" data-field="'+k+'" value="'+esc(entry.corners[c.key][k])+'">'
         }; });
         html += pairRows(cells);
       });
@@ -4245,7 +4270,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     html += condBox();
     html += '<div class="setup-shared-box"><h5>Homologation / Poids / Resultats</h5><div class="setup-field-grid">';
     SETUP_WEIGHTS_FIELDS.forEach(f=>{
-      html += '<div class="setup-field-row"><label>'+f.label+'</label><input type="text"'+ro+' class="setupWeightInput" data-field="'+f.key+'" value="'+esc(entry.weights[f.key])+'"></div>';
+      const opts = setupParamOpts(f.key);
+      const ctl = opts
+        ? '<select'+roSel+' class="setupWeightInput" data-field="'+f.key+'">'+paramOptionEls(opts, entry.weights[f.key])+'</select>'
+        : '<input type="text"'+ro+' class="setupWeightInput" data-field="'+f.key+'" value="'+esc(entry.weights[f.key])+'">';
+      html += '<div class="setup-field-row"><label>'+f.label+'</label>'+ctl+'</div>';
     });
     html += '</div></div>';
     html += '</div>';
@@ -4448,7 +4477,42 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!sub) return;
     if(activeSetupView==='history') renderSetupHistoryView(sub);
     else if(activeSetupView==='compare') renderSetupCompareView(sub);
+    else if(activeSetupView==='params') renderSetupParamsView(sub);
     else renderSetupEditView(sub, selectedSetupContext.taskKey, false);
+  }
+
+  // Ecran de configuration des valeurs disponibles par parametre (listes deroulantes du setup)
+  function renderSetupParamsView(container){
+    const esc = (x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const row = (key, label)=>{
+      const vals = (STATE.setupParamOptions[key]||[]).join(' ; ');
+      return '<div class="setup-field-row" style="max-width:560px;"><label style="flex:0 0 210px;">'+label+'</label>'+
+        '<input type="text" class="setupParamOptInput" data-key="'+key+'" value="'+esc(vals)+'" placeholder="ex: 13 ; 14 ; 14.5"></div>';
+    };
+    const box = (title, rows)=> '<div class="setup-shared-box" style="margin-bottom:14px;"><h5>'+title+'</h5>'+rows+'</div>';
+
+    let html = '<p class="small">Definissez les valeurs disponibles de chaque parametre, separees par <b>;</b> . Les parametres renseignes deviennent des <b>listes deroulantes</b> dans l\'onglet Editer (une valeur hors-liste deja saisie reste conservee). Laissez vide pour une saisie libre.</p>';
+
+    // Roue (une seule config, appliquee aux 4 roues)
+    html += box('Roue (applique aux 4 roues)', SETUP_FIELDS.map(f=>row(f.key, f.label+(f.unit?' ['+f.unit+']':''))).join(''));
+    // Avant
+    html += box('Avant (essieu)', SETUP_FRONT_AXLE.filter(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return !(f.source==='plank'||f.source==='brake'); }).map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return row(k, f.label+(f.unit?' ['+f.unit+']':'')); }).join('') +
+      SETUP_THIRD_FRONT.map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return row(k, '3rd - '+f.label.replace(/^3rd Elem\. Front - /,'')); }).join(''));
+    // Arriere
+    html += box('Arriere (essieu)', SETUP_REAR_AXLE.filter(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return !(f.source==='plank'||f.source==='brake'); }).map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return row(k, f.label+(f.unit?' ['+f.unit+']':'')); }).join('') +
+      SETUP_THIRD_REAR.map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return row(k, '3rd - '+f.label.replace(/^3rd Elem\. Rear - /,'')); }).join(''));
+    // Poids / resultats
+    html += box('Homologation / Poids / Resultats', SETUP_WEIGHTS_FIELDS.map(f=>row(f.key, f.label)).join(''));
+
+    container.innerHTML = html;
+    container.querySelectorAll('.setupParamOptInput').forEach(inp=>{
+      inp.addEventListener('change', (e)=>{
+        const key = e.target.dataset.key;
+        const arr = e.target.value.split(/[;,\n]/).map(s=>s.trim()).filter(s=>s!=='');
+        if(arr.length) STATE.setupParamOptions[key] = arr; else delete STATE.setupParamOptions[key];
+        saveState();
+      });
+    });
   }
 
   // ===== NOUVEL ONGLET SETUP (dedie, protege par mot de passe) =====
@@ -4618,7 +4682,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
 
   function renderSetupSubNav(){
-    const views = [{key:'edit', label:'Editer'}, {key:'history', label:'Historique'}, {key:'compare', label:'Comparer'}];
+    const views = [{key:'edit', label:'Editer'}, {key:'history', label:'Historique'}, {key:'compare', label:'Comparer'}, {key:'params', label:'Parametres voiture'}];
     let html = '<div class="subtabs" id="setupSubTabs">'+
       views.map(v=>'<button data-view="'+v.key+'" class="'+(activeSetupView===v.key?'active':'')+'">'+v.label+'</button>').join('')+
     '</div>';
