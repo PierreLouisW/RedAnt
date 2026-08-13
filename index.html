@@ -215,6 +215,8 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-box{border:1px solid var(--border);border-radius:8px;background:var(--panel2);padding:10px 12px;}
 .rs-box h5{margin:0 0 8px;font-size:12px;color:var(--accent);text-transform:uppercase;letter-spacing:.4px;}
 .rs-cond-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 12px;}
+.setup-access-box{border:1px solid var(--border);border-radius:8px;background:var(--panel2);padding:8px 12px;}
+.setup-access-box summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--accent);}
 .rs-run-header{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;margin-bottom:8px;}
 .rs-run-badge{background:var(--accent);color:#fff;font-size:12px;font-weight:700;padding:4px 12px;border-radius:6px;white-space:nowrap;}
 .rs-run-header input{flex:1;margin:0;font-size:14px;}
@@ -1418,6 +1420,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // Run sheets (feuilles de run) par seance : { taskKey: {...} }
     if(!data.runsheets || typeof data.runsheets!=='object') data.runsheets = {};
     if(!data.runPlans || typeof data.runPlans!=='object') data.runPlans = {};
+    if(!Array.isArray(data.engineerEmails)) data.engineerEmails = [];
     // Pilotes (nom, categorie FIA, couleur)
     if(!Array.isArray(data.drivers)) data.drivers = [];
     data.drivers.forEach(d=>{
@@ -1505,12 +1508,30 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   /* =========================================================
      AUTHENTIFICATION - acces reserve a l'equipe
      ========================================================= */
+  let CURRENT_EMAIL = '';
   function renderUserBadge(email){
+    CURRENT_EMAIL = email || '';
     const el = document.getElementById('userBadge');
     if(!el) return;
     el.innerHTML = (email ? '<span>'+email+'</span>' : '') + '<button id="logoutBtn">Deconnexion</button>';
     const btn = document.getElementById('logoutBtn');
     if(btn) btn.onclick = async ()=>{ await sbClient.auth.signOut(); document.body.classList.add('auth-locked'); };
+    applyRoleVisibility();
+  }
+  // Acces reserve : seuls les emails "ingenieur" voient Setup et Run Sheet (liste vide = tout le monde)
+  function isEngineer(){
+    const list = (typeof STATE!=='undefined' && STATE && Array.isArray(STATE.engineerEmails)) ? STATE.engineerEmails : [];
+    if(!list.length) return true;              // non configure -> acces pour tous
+    if(!CURRENT_EMAIL) return true;            // email pas encore connu -> ne pas bloquer
+    return list.map(e=>String(e).toLowerCase()).indexOf(CURRENT_EMAIL.toLowerCase()) >= 0;
+  }
+  function applyRoleVisibility(){
+    const eng = isEngineer();
+    ['setup','runsheet'].forEach(t=>{ const btn=document.querySelector('nav.tabs button[data-tab="'+t+'"]'); if(btn) btn.style.display = eng ? '' : 'none'; });
+    if(!eng){
+      const onForbidden = ['setup','runsheet'].some(t=>{ const s=document.getElementById('tab-'+t); return s && s.classList.contains('active'); });
+      if(onForbidden){ const home=document.querySelector('nav.tabs button[data-tab="accueil"]'); if(home) home.click(); }
+    }
   }
 
   async function checkAuth(){
@@ -6140,10 +6161,30 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   // ===== NOUVEL ONGLET SETUP (dedie, protege par mot de passe) =====
   let selectedSetupContext = {eventId:'', taskKey:''};
 
+  function renderAccessBox(){
+    const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const list=(STATE.engineerEmails||[]);
+    const meIn = CURRENT_EMAIL && list.map(x=>String(x).toLowerCase()).indexOf(CURRENT_EMAIL.toLowerCase())>=0;
+    let h='<details class="setup-access-box" style="margin-bottom:12px;"><summary>🔒 Accès Setup / Run Sheet (ingénieurs)</summary>';
+    h+='<p class="small" style="margin:8px 0;">'+(list.length?'Seuls les comptes ci-dessous voient les onglets <b>Setup</b> et <b>Run Sheet</b>. Les autres (mécanos) ne les voient pas.':'Liste vide : <b>tout le monde</b> a accès. Ajoutez des emails pour restreindre l\'accès aux ingénieurs.')+'</p>';
+    h+='<div class="rs-chips">'+(list.length?list.map((e,i)=>'<span class="rs-chip">'+esc(e)+' <button class="rs-chip-x setupAccessDel" data-i="'+i+'" title="Retirer">&times;</button></span>').join(''):'<span class="small">—</span>')+'</div>';
+    h+='<div class="row" style="margin-top:8px;gap:6px;align-items:center;"><input type="email" id="setupAccessInput" placeholder="email@exemple.com" style="max-width:280px;margin:0;"><button class="secondary" id="setupAccessAdd">Ajouter</button>'+
+      ((CURRENT_EMAIL && !meIn)?'<button class="secondary" id="setupAccessAddMe">M\'ajouter ('+esc(CURRENT_EMAIL)+')</button>':'')+'</div>';
+    h+='</details>';
+    return h;
+  }
+  function wireAccessBox(){
+    const addBtn=document.getElementById('setupAccessAdd'), input=document.getElementById('setupAccessInput');
+    const addEmail=(val)=>{ val=String(val||'').trim(); if(!val) return; const list=STATE.engineerEmails; const wasEmpty=list.length===0; if(list.map(e=>e.toLowerCase()).indexOf(val.toLowerCase())<0) list.push(val); if(wasEmpty && CURRENT_EMAIL && list.map(e=>e.toLowerCase()).indexOf(CURRENT_EMAIL.toLowerCase())<0) list.push(CURRENT_EMAIL); saveState(); renderSetupTabPage(); applyRoleVisibility(); };
+    if(addBtn) addBtn.onclick=()=>addEmail(input?input.value:'');
+    const addMe=document.getElementById('setupAccessAddMe'); if(addMe) addMe.onclick=()=>addEmail(CURRENT_EMAIL);
+    document.querySelectorAll('.setupAccessDel').forEach(btn=>btn.onclick=()=>{ const i=Number(btn.dataset.i); const email=STATE.engineerEmails[i]; if(email && CURRENT_EMAIL && String(email).toLowerCase()===CURRENT_EMAIL.toLowerCase()){ if(!confirm('Vous allez retirer VOTRE acces a Setup / Run Sheet. Continuer ?')) return; } STATE.engineerEmails.splice(i,1); saveState(); renderSetupTabPage(); applyRoleVisibility(); });
+  }
   function renderSetupTabPage(){
     const card = document.getElementById('setupTabCard');
     if(!card) return;
     card.innerHTML =
+      renderAccessBox()+
       '<div class="measure-context-row">'+
         '<label>Evenement <select id="setupEventSelect">'+eventSelectOptions(selectedSetupContext.eventId)+'</select></label>'+
         '<label>Session / seance <select id="setupTaskSelect">'+todoTaskSelectOptions(selectedSetupContext.eventId, selectedSetupContext.taskKey)+'</select></label>'+
@@ -6152,6 +6193,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       '<div id="setupSubContent"></div>';
     const taskSel = document.getElementById('setupTaskSelect');
     if(taskSel && taskSel.value !== selectedSetupContext.taskKey) selectedSetupContext.taskKey = taskSel.value;
+    wireAccessBox();
     wireSetupTabSelectors();
     wireSetupSubNav();
     renderSetupSubContent();
@@ -6601,6 +6643,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     renderChangesTable();
     renderStockTab();
     renderBuildsheet();
+    applyRoleVisibility();
   }
 
   let appStarted = false;
