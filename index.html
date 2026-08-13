@@ -299,6 +299,10 @@ td.releve-diff input{font-weight:700;color:#e6a01e;}
 .setup-releve-table td.setup-target{width:36px;text-align:center;font-size:10px;}
 .setup-releve-table td.setup-releve-td{width:52px;}
 .setup-releve-table input.setupReleveInput{width:46px;max-width:46px;padding:2px 3px;}
+.setup-cmp-table td{padding:2px 4px;}
+.setup-cmp-table td.setup-label{font-size:10px;}
+.setup-cmp-table td.setup-target{text-align:center;font-size:10px;min-width:44px;}
+.setup-cmp-table td.releve-diff{background:rgba(230,160,30,0.28);font-weight:700;color:#e6a01e;}
 .setup-setdown-bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
 .lr-link-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap;cursor:pointer;}
 .lr-link-toggle input{width:auto;flex:0 0 auto;margin:0;}
@@ -3996,14 +4000,15 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {key:'packer', label:'Packers', unit:'mm'},
     {key:'rhChassis', label:'RH chassis', unit:'mm'},
     {key:'pushLength', label:'Push Length', unit:'mm'},
-    {key:'cornerWeight', label:'Corner weight', unit:'Kg', noMirror:true}
+    {key:'cornerWeight', label:'Corner weight', unit:'Kg', noMirror:true},
+    {key:'tyrePressure', label:'Tyre pressure', unit:'psi'}
   ];
   // Sous-sections d'une roue (comme le 3rd element du FRONT) ; les paires definissent 2 champs par ligne
   const SETUP_WHEEL_GROUPS = [
     {title:'', keys:['toe','camber','camberShim']},
     {title:'Damping', keys:['lsb','hsb','lsr','hsr']},
     {title:'Damper', keys:['spring','preloadPlatform','bumpRubber','gap','packer']},
-    {title:'General', keys:['rhChassis','pushLength','cornerWeight']}
+    {title:'General', keys:['rhChassis','pushLength','cornerWeight','tyrePressure']}
   ];
   // Champs partages (par essieu / voiture)
   const SETUP_SHARED_FIELDS = [
@@ -4468,30 +4473,65 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     }).sort((a,b)=> a.label<b.label?-1:1);
 
     let html = '<div class="row">'+
-      '<div><label>Setup A</label><select id="setupCompareA"><option value="">(choisir)</option>'+
+      '<div><label>Setup 1</label><select id="setupCompareA"><option value="">(choisir)</option>'+
         options.map(o=>'<option value="'+o.id+'" '+(String(compareSelection.a)===o.id?'selected':'')+'>'+o.label+'</option>').join('')+
       '</select></div>'+
-      '<div><label>Setup B</label><select id="setupCompareB"><option value="">(choisir)</option>'+
+      '<div><label>Setup 2</label><select id="setupCompareB"><option value="">(choisir)</option>'+
         options.map(o=>'<option value="'+o.id+'" '+(String(compareSelection.b)===o.id?'selected':'')+'>'+o.label+'</option>').join('')+
       '</select></div>'+
     '</div>';
 
     const findSnap = (id)=> snaps.find(s=>String(s.id)===String(id)) || null;
-    const entryA = compareSelection.a ? findSnap(compareSelection.a) : null;
-    const entryB = compareSelection.b ? findSnap(compareSelection.b) : null;
-    if(entryA || entryB){
-      const rowsA = collectSetupFieldRows(entryA);
-      const rowsB = collectSetupFieldRows(entryB);
-      html += '<table class="setup-compare-table"><thead><tr><th>Parametre</th><th>Setup A</th><th>Setup B</th></tr></thead><tbody>';
-      rowsA.forEach((r,i)=>{
-        const rb = rowsB[i];
-        if(!r.raw && !rb.raw) return;
-        const diff = r.raw !== rb.raw;
-        html += '<tr'+(diff?' class="setup-diff-row"':'')+'><td>'+r.label+'</td><td>'+r.value+'</td><td>'+rb.value+'</td></tr>';
-      });
-      html += '</tbody></table>';
+    const snapA = compareSelection.a ? findSnap(compareSelection.a) : null;
+    const snapB = compareSelection.b ? findSnap(compareSelection.b) : null;
+
+    if(!snapA && !snapB){
+      html += '<div class="small" style="margin-top:12px;">Choisissez deux setups a comparer (valeurs identiques = normal, valeurs differentes = surlignees).</div>';
     } else {
-      html += '<div class="small" style="margin-top:12px;">Choisissez deux setups a comparer (memes valeurs = ligne normale, valeurs differentes = ligne surlignee).</div>';
+      const dv = (x)=>{ const v=cval(x); return (v==null||v==='')?'-':v; };
+      const isDiff = (a,b)=> String(cval(a)).trim() !== String(cval(b)).trim();
+      const cmpTriple = (label, v1, v2)=>{
+        const cls = isDiff(v1,v2) ? ' releve-diff' : '';
+        return '<td class="setup-label">'+label+'</td><td class="setup-target'+cls+'">'+dv(v1)+'</td><td class="setup-target'+cls+'">'+dv(v2)+'</td>';
+      };
+      const pairCmp = (cells)=>{
+        let h=''; const one=(c)=> c ? cmpTriple(c.label, c.v1, c.v2) : '<td></td><td></td><td></td>';
+        for(let i=0;i<cells.length;i+=2){ h += '<tr>'+one(cells[i])+one(cells[i+1])+'</tr>'; }
+        return h;
+      };
+      const cHead = '<thead><tr><th>Parametre</th><th>Setup 1</th><th>Setup 2</th><th>Parametre</th><th>Setup 1</th><th>Setup 2</th></tr></thead>';
+      const sV=(snap,k)=> snap&&snap.shared?snap.shared[k]:'';
+      const cV=(snap,c,k)=> snap&&snap.corners&&snap.corners[c]?snap.corners[c][k]:'';
+      const wV=(snap,k)=> snap&&snap.weights?snap.weights[k]:'';
+      const condV=(snap,k)=> snap&&snap.conditions?snap.conditions[k]:'';
+      const axleCmpBox = (title, axleKeys, thirdTitle, thirdKeys)=>{
+        let rows = pairCmp(axleKeys.map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return {label:f.label+(f.unit?' ['+f.unit+']':''), v1:sV(snapA,k), v2:sV(snapB,k)}; }));
+        rows += '<tr class="setup-subhead"><td colspan="6">'+thirdTitle+'</td></tr>';
+        rows += pairCmp(thirdKeys.map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return {label:f.label.replace(/^3rd Elem\. (Front|Rear) - /,''), v1:sV(snapA,k), v2:sV(snapB,k)}; }));
+        return '<div class="setup-corner-card"><div class="setup-banner" style="border-radius:0;">'+title+'</div><table class="setup-corner-table setup-cmp-table">'+cHead+'<tbody>'+rows+'</tbody></table></div>';
+      };
+
+      // FRONT
+      html += '<div class="setup-axle-center" style="margin-top:12px;">'+axleCmpBox('FRONT', SETUP_FRONT_AXLE, '3rd Element Front', SETUP_THIRD_FRONT)+'</div>';
+      // Roues
+      html += '<div class="setup-corners-grid" style="margin-top:16px;">';
+      SETUP_CORNERS.forEach(c=>{
+        let rows='';
+        SETUP_WHEEL_GROUPS.forEach(g=>{
+          if(g.title) rows += '<tr class="setup-subhead"><td colspan="6">'+g.title+'</td></tr>';
+          rows += pairCmp(g.keys.map(k=>{ const f=FIELD_BY_KEY[k]; return {label:f.label+(f.unit?' ['+f.unit+']':''), v1:cV(snapA,c.key,k), v2:cV(snapB,c.key,k)}; }));
+        });
+        html += '<div class="setup-corner-card"><div class="setup-banner" style="border-radius:0;">'+c.label+'</div><table class="setup-corner-table setup-cmp-table">'+cHead+'<tbody>'+rows+'</tbody></table></div>';
+      });
+      html += '</div>';
+      // REAR
+      html += '<div class="setup-axle-center" style="margin-top:16px;">'+axleCmpBox('REAR', SETUP_REAR_AXLE, '3rd Element Rear', SETUP_THIRD_REAR)+'</div>';
+      // Conditions + Resultats
+      html += '<div class="setup-shared-grid" style="margin-top:16px;">';
+      let condRows=''; SETUP_CONDITION_FIELDS.forEach(f=>{ condRows += '<tr>'+cmpTriple(f.label, condV(snapA,f.key), condV(snapB,f.key))+'</tr>'; });
+      html += '<div class="setup-shared-box"><h5>Session Conditions</h5><table class="setup-corner-table setup-cmp-table"><thead><tr><th>Parametre</th><th>Setup 1</th><th>Setup 2</th></tr></thead><tbody>'+condRows+'</tbody></table></div>';
+      html += '<div class="setup-shared-box"><h5>Homologation / Poids / Resultats</h5><table class="setup-corner-table setup-cmp-table">'+cHead+'<tbody>'+pairCmp(SETUP_WEIGHTS_FIELDS.map(f=>({label:f.label, v1:wV(snapA,f.key), v2:wV(snapB,f.key)})))+'</tbody></table></div>';
+      html += '</div>';
     }
 
     container.innerHTML = html;
