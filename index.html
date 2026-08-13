@@ -447,9 +447,14 @@ body.auth-locked #authGate{ display:flex; }
       <button data-role="setup">Setup</button>
     </div>
     <div class="row" style="margin-top:10px;" id="todoTaskToolsRow">
-      <div><button class="secondary" id="todoLoadTemplateBtn">Charger les taches types</button></div>
-      <div><button class="secondary" id="todoWaSendBtn">Envoyer par WhatsApp</button></div>
-      <div><button class="secondary" id="todoManageTemplatesBtn">Gerer les taches types</button></div>
+      <div><label>Type de seance</label><select id="todoSessionTypeSelect">
+        <option value="essais">Essais</option>
+        <option value="qualif">Qualifs</option>
+        <option value="course">Course</option>
+      </select></div>
+      <div style="align-self:flex-end;"><button class="secondary" id="todoLoadTemplateBtn">Charger les taches types</button></div>
+      <div style="align-self:flex-end;"><button class="secondary" id="todoWaSendBtn">Envoyer par WhatsApp</button></div>
+      <div style="align-self:flex-end;"><button class="secondary" id="todoManageTemplatesBtn">Gerer les taches types</button></div>
     </div>
     <div id="todoTaskList" class="todo-task-list"></div>
     <div class="row" style="margin-top:12px;" id="todoAddTaskRow">
@@ -1071,11 +1076,19 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!Array.isArray(data.brakeAssemblies)) data.brakeAssemblies = [];
     if(!Array.isArray(data.todoTasks)) data.todoTasks = [];
     data.todoTasks.forEach(t=>{ if(typeof t.note!=='string') t.note = ''; });
-    if(!data.todoTemplates || typeof data.todoTemplates!=='object'){
-      data.todoTemplates = {mecano: builtinDefaultTodoTasks('mecano'), ingenieur: builtinDefaultTodoTasks('ingenieur')};
-    }
-    if(!Array.isArray(data.todoTemplates.mecano)) data.todoTemplates.mecano = builtinDefaultTodoTasks('mecano');
-    if(!Array.isArray(data.todoTemplates.ingenieur)) data.todoTemplates.ingenieur = builtinDefaultTodoTasks('ingenieur');
+    if(!data.todoTemplates || typeof data.todoTemplates!=='object') data.todoTemplates = {};
+    ['mecano','ingenieur'].forEach(role=>{
+      let r = data.todoTemplates[role];
+      if(Array.isArray(r)){
+        // ancien format (une seule liste) -> recopiee dans chaque type de seance
+        data.todoTemplates[role] = {essais:deepClone(r), qualif:deepClone(r), course:deepClone(r)};
+      } else if(!r || typeof r!=='object'){
+        const def = builtinDefaultTodoTasks(role);
+        data.todoTemplates[role] = {essais:deepClone(def), qualif:deepClone(def), course:deepClone(def)};
+      } else {
+        ['essais','qualif','course'].forEach(k=>{ if(!Array.isArray(r[k])) r[k] = []; });
+      }
+    });
     if(!data.setupData || typeof data.setupData!=='object') data.setupData = {};
     if(!Array.isArray(data.setupSnapshots)) data.setupSnapshots = [];
     if(typeof data.setupPassword!=='string') data.setupPassword = '';
@@ -3559,7 +3572,40 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   // ---------- RENDER ALL ----------
   // ---------- TO DO ----------
   let activeTodoRole = 'mecano';
+  let activeTodoSession = 'essais';
   let selectedTodoContext = {eventId:'', taskKey:''};
+  const TODO_SESSION_TYPES = [
+    {key:'essais', label:'Essais'},
+    {key:'qualif', label:'Qualifs'},
+    {key:'course', label:'Course'}
+  ];
+  function todoSessionLabel(key){
+    const s = TODO_SESSION_TYPES.find(x=>x.key===key);
+    return s ? s.label : key;
+  }
+  // devine le type de seance depuis le nom de la tache (FP/test -> essais, Q -> qualif, Race -> course)
+  function guessTodoSessionType(text){
+    const s = (text||'').toLowerCase();
+    if(/race|course/.test(s)) return 'course';
+    if(/qualif|\bq[12]?\b/.test(s)) return 'qualif';
+    return 'essais';
+  }
+  // pre-selectionne le type de seance a partir de la tache choisie (modifiable ensuite a la main)
+  function autoPickTodoSession(){
+    if(!selectedTodoContext.taskKey) return;
+    const found = findTodoTask(selectedTodoContext.taskKey);
+    if(found && found.task) activeTodoSession = guessTodoSessionType(found.task.text);
+  }
+  // renvoie (et cree si besoin) la liste de taches types pour un role + type de seance
+  function getTodoTemplateList(role, sess){
+    let r = STATE.todoTemplates[role];
+    if(Array.isArray(r)){ // securite : ancien format non migre
+      r = STATE.todoTemplates[role] = {essais:deepClone(r), qualif:deepClone(r), course:deepClone(r)};
+    }
+    if(!r || typeof r!=='object'){ r = STATE.todoTemplates[role] = {essais:[],qualif:[],course:[]}; }
+    if(!Array.isArray(r[sess])) r[sess] = [];
+    return r[sess];
+  }
 
   function todoTaskSelectOptions(eventId, selectedKey){
     const ev = (STATE.mlmcEvents||[]).find(e=>String(e.id)===String(eventId));
@@ -3770,8 +3816,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function renderTodoTemplateEditor(){
     const card = document.getElementById('todoTemplateEditorCard');
     if(!card || card.style.display==='none') return;
-    document.getElementById('todoTemplateEditorRoleLabel').textContent = activeTodoRole==='mecano' ? 'Mecano' : 'Ingenieur';
-    const list = STATE.todoTemplates[activeTodoRole] || [];
+    document.getElementById('todoTemplateEditorRoleLabel').textContent = (activeTodoRole==='mecano' ? 'Mecano' : 'Ingenieur') + ' · ' + todoSessionLabel(activeTodoSession);
+    const list = getTodoTemplateList(activeTodoRole, activeTodoSession);
     const box = document.getElementById('todoTemplateList');
     box.innerHTML = list.map((tpl,idx)=>
       '<div class="todo-task-row">'+
@@ -3786,19 +3832,21 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     document.querySelectorAll('.todoTemplateTextInput').forEach(inp=>{
       inp.addEventListener('change', (e)=>{
         const idx = Number(e.target.dataset.idx);
-        if(STATE.todoTemplates[activeTodoRole][idx]){ STATE.todoTemplates[activeTodoRole][idx].text = e.target.value.trim(); saveState(); }
+        const l = getTodoTemplateList(activeTodoRole, activeTodoSession);
+        if(l[idx]){ l[idx].text = e.target.value.trim(); saveState(); }
       });
     });
     document.querySelectorAll('.todoTemplateLinkSelect').forEach(sel=>{
       sel.addEventListener('change', (e)=>{
         const idx = Number(e.target.dataset.idx);
-        if(STATE.todoTemplates[activeTodoRole][idx]){ STATE.todoTemplates[activeTodoRole][idx].link = e.target.value || null; saveState(); }
+        const l = getTodoTemplateList(activeTodoRole, activeTodoSession);
+        if(l[idx]){ l[idx].link = e.target.value || null; saveState(); }
       });
     });
     document.querySelectorAll('.todoTemplateDelBtn').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const idx = Number(btn.dataset.idx);
-        STATE.todoTemplates[activeTodoRole].splice(idx,1);
+        getTodoTemplateList(activeTodoRole, activeTodoSession).splice(idx,1);
         saveState();
       });
     });
@@ -4356,6 +4404,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       ? ('Session deja enregistree : '+round3(realSess.tours||0)+' tours - '+round3(sessionKmValue(realSess)||0)+' km')
       : (selectedTodoContext.taskKey ? 'Session pas encore enregistree (a venir)' : '');
     document.querySelectorAll('#todoRoleTabs button').forEach(b=>b.classList.toggle('active', b.dataset.role===activeTodoRole));
+    const sessTypeSel = document.getElementById('todoSessionTypeSelect');
+    if(sessTypeSel) sessTypeSel.value = activeTodoSession;
 
     const isSetup = activeTodoRole==='setup';
     document.getElementById('todoSetupContent').style.display = isSetup ? '' : 'none';
@@ -4439,10 +4489,17 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       selectedTodoContext.eventId = e.target.value;
       taskSel.innerHTML = todoTaskSelectOptions(selectedTodoContext.eventId, '');
       selectedTodoContext.taskKey = taskSel.value;
+      autoPickTodoSession();
       renderTodoTab();
     });
     if(taskSel) taskSel.addEventListener('change', (e)=>{
       selectedTodoContext.taskKey = e.target.value;
+      autoPickTodoSession();
+      renderTodoTab();
+    });
+    const sessTypeSel = document.getElementById('todoSessionTypeSelect');
+    if(sessTypeSel) sessTypeSel.addEventListener('change', (e)=>{
+      activeTodoSession = e.target.value;
       renderTodoTab();
     });
     document.querySelectorAll('#todoRoleTabs button').forEach(btn=>{
@@ -4457,7 +4514,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const existing = STATE.todoTasks.filter(t=>t.taskKey===selectedTodoContext.taskKey && t.role===activeTodoRole);
       if(existing.length && !confirm('Des taches existent deja pour cette seance/role. Ajouter quand meme les taches types (en plus) ?')) return;
       let maxId = STATE.todoTasks.reduce((m,t)=>Math.max(m,t.id),0);
-      (STATE.todoTemplates[activeTodoRole]||[]).forEach(tpl=>{
+      getTodoTemplateList(activeTodoRole, activeTodoSession).forEach(tpl=>{
         maxId += 1;
         STATE.todoTasks.push({id:maxId, taskKey:selectedTodoContext.taskKey, role:activeTodoRole, text:tpl.text, assignedContactId:null, done:false, link:tpl.link, note:''});
       });
@@ -4510,8 +4567,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const text = document.getElementById('todoNewTemplateText').value.trim();
       if(!text) return;
       const link = document.getElementById('todoNewTemplateLink').value || null;
-      STATE.todoTemplates[activeTodoRole] = STATE.todoTemplates[activeTodoRole] || [];
-      STATE.todoTemplates[activeTodoRole].push({text, link});
+      getTodoTemplateList(activeTodoRole, activeTodoSession).push({text, link});
       document.getElementById('todoNewTemplateText').value = '';
       saveState();
     });
