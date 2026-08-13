@@ -264,7 +264,7 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .setup-corner-table td select{padding:3px 4px;font-size:11px;width:100%;}
 .setup-corner-table tr.setup-subhead td{background:var(--panel);color:var(--accent);font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:.4px;padding:5px 6px;}
 .setup-axle-center{display:flex;justify-content:center;}
-.setup-axle-center .setup-corner-card{width:100%;max-width:460px;}
+.setup-axle-center .setup-corner-card{width:100%;max-width:660px;}
 .setup-field-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 18px;}
 .setup-field-grid .setup-field-row{margin-bottom:0;}
 .setup-field-grid .setup-field-row label{flex:0 0 92px;}
@@ -4149,18 +4149,28 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       if(f.source==='brake') return '<select'+roSel+' class="setupSharedInput" data-field="'+key+'">'+setupBrakeOptions(cval(entry.shared[key]))+'</select>';
       return '<input type="text"'+ro+' class="setupSharedInput" data-field="'+key+'" value="'+esc(entry.shared[key])+'">';
     };
-    const axleRows = (keys, strip)=> keys.map(key=>{
-      const f = SHARED_FIELD_BY_KEY[key]; if(!f) return '';
+    // Rendu de cellules {label,control} par 2 par ligne (tableau 4 colonnes)
+    const pairRows = (cells)=>{
+      let h='';
+      for(let i=0;i<cells.length;i+=2){
+        const a=cells[i], b=cells[i+1];
+        h += '<tr><td class="setup-label">'+a.label+'</td><td>'+a.control+'</td>'+
+          (b ? ('<td class="setup-label">'+b.label+'</td><td>'+b.control+'</td>') : '<td></td><td></td>')+'</tr>';
+      }
+      return h;
+    };
+    const axleCells = (keys, strip)=> keys.map(key=>{
+      const f = SHARED_FIELD_BY_KEY[key];
       const lab = strip ? f.label.replace(/^3rd Elem\. (Front|Rear) - /,'') : (f.label+(f.unit?' ['+f.unit+']':''));
-      return '<tr><td class="setup-label">'+lab+'</td><td>'+sharedControl(key)+'</td></tr>';
-    }).join('');
+      return {label:lab, control:sharedControl(key)};
+    });
     const axleBox = (title, axleKeys, thirdTitle, thirdKeys)=>
       '<div class="setup-corner-card">'+
         '<div class="setup-banner" style="border-radius:0;">'+title+'</div>'+
-        '<table class="setup-corner-table"><thead><tr><th>Parametre</th><th>Target</th></tr></thead><tbody>'+
-          axleRows(axleKeys,false)+
-          '<tr class="setup-subhead"><td colspan="2">'+thirdTitle+'</td></tr>'+
-          axleRows(thirdKeys,true)+
+        '<table class="setup-corner-table"><tbody>'+
+          pairRows(axleCells(axleKeys,false))+
+          '<tr class="setup-subhead"><td colspan="4">'+thirdTitle+'</td></tr>'+
+          pairRows(axleCells(thirdKeys,true))+
         '</tbody></table>'+
       '</div>';
     const condBox = ()=>{
@@ -4183,14 +4193,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // 2) Roues (corners) - saisie a gauche recopiee a droite
     html += '<div class="setup-corners-grid" style="margin-top:16px;">';
     SETUP_CORNERS.forEach(c=>{
+      const cells = SETUP_FIELDS.map(f=>({
+        label: f.label+(f.unit?' ['+f.unit+']':''),
+        control: '<input type="text"'+ro+' class="setupFieldInput" data-corner="'+c.key+'" data-field="'+f.key+'" value="'+esc(entry.corners[c.key][f.key])+'">'
+      }));
       html += '<div class="setup-corner-card">';
       html += '<div class="setup-banner" style="border-radius:0;">'+c.label+'</div>';
-      html += '<table class="setup-corner-table"><thead><tr><th>Parametre</th><th>Target</th></tr></thead><tbody>';
-      SETUP_FIELDS.forEach(f=>{
-        html += '<tr><td class="setup-label">'+f.label+(f.unit?' ['+f.unit+']':'')+'</td>'+
-          '<td><input type="text"'+ro+' class="setupFieldInput" data-corner="'+c.key+'" data-field="'+f.key+'" value="'+esc(entry.corners[c.key][f.key])+'"></td></tr>';
-      });
-      html += '</tbody></table></div>';
+      html += '<table class="setup-corner-table"><tbody>'+pairRows(cells)+'</tbody></table></div>';
     });
     html += '</div>';
 
