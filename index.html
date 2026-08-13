@@ -1031,6 +1031,12 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       data.stockItems.forEach(i=>{ if(['disc','bell','pad'].includes(i.categoryKey)){ const p=(i.position||'').toUpperCase(); if(['FL','RL','L','LEFT','GAUCHE'].includes(p)) i.position='L'; else if(['FR','RR','R','RIGHT','DROITE'].includes(p)) i.position='R'; } });
       data.stockPosLRMig = true;
     }
+    // Statut jantes derive : Monte (Voiture) si attribuee a un pneu, sinon Non monte (Atelier)
+    if(!data.rimStatusDeriveMig){
+      const mountedCodes = new Set(data.stockItems.filter(i=>i.categoryKey==='tyre' && i.extra && i.extra.rimSetCode).map(i=>i.extra.rimSetCode));
+      data.stockItems.forEach(i=>{ if(i.categoryKey==='rim') i.status = mountedCodes.has(i.code) ? 'voiture' : 'atelier'; });
+      data.rimStatusDeriveMig = true;
+    }
     const tyreCatMig = data.stockCategories.find(c=>c.key==='tyre');
     if(tyreCatMig && !(tyreCatMig.extraFields||[]).some(f=>f.key==='compound')){
       tyreCatMig.extraFields = (tyreCatMig.extraFields||[]).concat([{key:'compound', label:'Type (S/W)'}]);
@@ -1765,6 +1771,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
           });
         }
         STATE.stockItems.forEach(i=>{ if(i.categoryKey==='tyre' && i.code===code){ i.extra=i.extra||{}; i.extra.rimSetCode = newRimSet; } });
+        syncRimStatuses();
         saveState();
       });
     });
@@ -1820,6 +1827,22 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     });
   }
 
+  // Une jante (set) est "montee" si un pneu lui est attribue (extra.rimSetCode)
+  function isRimSetMounted(rimSetCode){
+    if(!rimSetCode) return false;
+    return STATE.stockItems.some(i=>i.categoryKey==='tyre' && i.extra && i.extra.rimSetCode===rimSetCode);
+  }
+  // Aligne le statut des jantes : Voiture si montee, sinon Atelier (statut derive Monte/Non monte)
+  function syncRimStatuses(){
+    let changed=false;
+    STATE.stockItems.forEach(i=>{
+      if(i.categoryKey==='rim'){
+        const s = isRimSetMounted(i.code) ? 'voiture' : 'atelier';
+        if(i.status!==s){ i.status=s; i.lastStatusChange=todayISO(); changed=true; }
+      }
+    });
+    return changed;
+  }
   function renderRimSetsTable(){
     const q = (document.getElementById('stockSearch').value||'').toLowerCase();
     const checkedStatuses = getCheckedStockStatuses();
@@ -1866,12 +1889,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
           '</div>'+
         '</td>';
       }).join('');
-      const statusPill = uniformStatus ? '<span class="status-pill '+uniformStatus+'">'+STOCK_STATUS_LABEL[uniformStatus]+'</span><br>' : '<span class="small">Mixte</span><br>';
-      const statusOptions = '<option value="" '+(uniformStatus?'':'selected')+' disabled>-</option>' +
-        Object.keys(STOCK_STATUS_LABEL).map(s=>'<option value="'+s+'" '+(uniformStatus===s?'selected':'')+'>'+STOCK_STATUS_LABEL[s]+'</option>').join('');
+      const mounted = isRimSetMounted(code);
+      const etatBadge = '<span class="status-pill" style="background:'+(mounted?'#1f7a4d':'#555')+';color:#fff;">'+(mounted?'Monté':'Non monté')+'</span>';
       return '<tr class="tyre-set-row">'+
         '<td><input type="text" class="rimSetNameInput" data-code="'+codeAttr+'" value="'+codeAttr+'" style="min-width:110px;"></td>'+
-        '<td>'+statusPill+'<select class="statusSelect rimStatusSelect" data-code="'+codeAttr+'">'+statusOptions+'</select></td>'+
+        '<td>'+etatBadge+'</td>'+
         cornerCells+
         '<td><input type="text" class="rimSetNoteInput" data-code="'+codeAttr+'" value="'+note.replace(/"/g,'&quot;')+'" style="min-width:150px;"></td>'+
       '</tr>';
@@ -1898,20 +1920,6 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         const code = e.target.dataset.code;
         STATE.stockItems.forEach(i=>{ if(i.categoryKey==='rim' && i.code===code) i.note = e.target.value; });
         saveState();
-      });
-    });
-    document.querySelectorAll('.rimStatusSelect').forEach(sel=>{
-      sel.addEventListener('change', (e)=>{
-        const code = e.target.dataset.code;
-        const newStatus = e.target.value;
-        if(!newStatus) return;
-        const g = groupSetsByCode('rim')[code] || {};
-        TYRE_POSITIONS.forEach(pos=>{
-          const it = g[pos];
-          if(!it) return;
-          if(newStatus==='voiture'){ assignToSlot('rim', pos, it.id); }
-          else { changeItemStatus(it.id, newStatus, 'Changement de statut (set jante)'); }
-        });
       });
     });
     document.querySelectorAll('.rimSwapToggle').forEach(btn=>{
