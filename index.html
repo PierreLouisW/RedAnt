@@ -4997,11 +4997,14 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // REAR
     html += '<div class="setup-axle-center" style="margin-top:16px;">'+axleReleveBox('REAR', SETUP_REAR_AXLE, '3rd Element Rear', SETUP_THIRD_REAR)+'</div>';
 
-    // Voiture / Divers (target + releve)
+    // Voiture / Divers (target + releve) - certains parametres masques cote mecano
+    const TODO_HIDDEN = ['gearboxBlanking','waterBlankingTop','waterBlankingBottom','brakeBlankingFront','brakeBlankingRear','tractionControl','brakeBias'];
     let miscRel = '';
     SETUP_MISC_GROUPS.forEach(g=>{
+      const vis = g.keys.filter(k=>TODO_HIDDEN.indexOf(k)<0);
+      if(!vis.length) return;
       miscRel += '<tr class="setup-subhead"><td colspan="6">'+g.title+'</td></tr>';
-      miscRel += pairReleveRows(g.keys.map(genCellTodo));
+      miscRel += pairReleveRows(vis.map(genCellTodo));
     });
     html += '<div class="setup-axle-center" style="margin-top:16px;"><div class="setup-corner-card" style="max-width:760px;">'+
       '<div class="setup-banner" style="border-radius:0;">VOITURE / DIVERS</div>'+
@@ -5014,18 +5017,6 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     html += '<div class="setup-axle-center" style="margin-top:16px;"><div class="setup-corner-card" style="max-width:560px;">'+
       '<div class="setup-banner" style="border-radius:0;">WEIGHT</div>'+
       '<table class="setup-corner-table setup-releve-table">'+rHead+'<tbody>'+weightRel+'</tbody></table></div></div>';
-
-    // Conditions (lecture seule) + Homologation (avec releve)
-    html += '<div class="setup-shared-grid" style="margin-top:16px;">';
-    html += '<div class="setup-shared-box"><h5>Session Conditions (lecture seule)</h5><div class="setup-field-grid">';
-    SETUP_CONDITION_FIELDS.forEach(f=>{ html += '<div class="setup-field-row"><label>'+f.label+'</label><span class="small">'+tval(entry.conditions[f.key])+'</span></div>'; });
-    html += '</div></div>';
-    html += '<div class="setup-shared-box"><h5>Homologation</h5><table class="setup-corner-table setup-releve-table"><thead><tr><th>Parametre</th><th>Target</th><th class="releve-col">Releve</th></tr></thead><tbody>'+
-      SETUP_HOMOLOG_KEYS.map(k=>{ const c=genCellTodo(k); return '<tr>'+
-        '<td class="setup-label">'+c.label+'</td><td class="setup-target">'+tval(c.target)+'</td>'+
-        (c.readonly?'<td class="setup-target">'+tval(c.releve)+'</td>':'<td class="setup-releve-td'+(setupReleveDiff(c.target,c.releve)?' releve-diff':'')+'"><input type="text" class="setupReleveInput" '+c.attrs+' value="'+esc(c.releve)+'"></td>')+
-        '</tr>'; }).join('')+'</tbody></table></div>';
-    html += '</div>';
 
     box.innerHTML = html;
 
