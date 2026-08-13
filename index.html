@@ -1116,6 +1116,23 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       data.mecanoRacelogicSetupRemoved = true;
     }
     if(!data.setupData || typeof data.setupData!=='object') data.setupData = {};
+    // Migration disposition v2 : anti roll bar (roue -> essieu), corner weights (weights -> roue)
+    if(!data.setupLayoutMigV2){
+      const cv2 = (x)=> (x && typeof x==='object') ? (x.target||'') : (x==null?'':x);
+      Object.keys(data.setupData).forEach(k=>{
+        const e = data.setupData[k]; if(!e || typeof e!=='object') return;
+        e.corners = e.corners||{}; e.shared = e.shared||{}; e.weights = e.weights||{};
+        const put = (dst, v)=>{ if(v && (e.shared[dst]==null || e.shared[dst]==='')) e.shared[dst]=v; };
+        const fl=e.corners.fl||{}, fr=e.corners.fr||{}, rl=e.corners.rl||{}, rr=e.corners.rr||{};
+        put('arbDiameterFront', cv2(fl.arbDiameter)||cv2(fr.arbDiameter));
+        put('arbBladeFront', cv2(fl.arbBlade)||cv2(fr.arbBlade));
+        put('arbDiameterRear', cv2(rl.arbDiameter)||cv2(rr.arbDiameter));
+        put('arbBladeRear', cv2(rl.arbBlade)||cv2(rr.arbBlade));
+        const cwMap = {cwFL:'fl', cwFR:'fr', cwRL:'rl', cwRR:'rr'};
+        Object.keys(cwMap).forEach(w=>{ const corner=cwMap[w], v=cv2(e.weights[w]); e.corners[corner]=e.corners[corner]||{}; if(v && (e.corners[corner].cornerWeight==null || e.corners[corner].cornerWeight==='')) e.corners[corner].cornerWeight=v; });
+      });
+      data.setupLayoutMigV2 = true;
+    }
     if(!Array.isArray(data.setupSnapshots)) data.setupSnapshots = [];
     if(typeof data.setupPassword!=='string') data.setupPassword = '';
     // Mot de passe Setup retire (acces gere plus tard par utilisateur) : on efface l'existant une fois
@@ -3912,6 +3929,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {key:'rl', label:'REAR LEFT'},
     {key:'rr', label:'REAR RIGHT'}
   ];
+  // Champs par roue (corner). Symetrie gauche->droite sauf noMirror (ex: corner weight, mesure propre a la roue)
   const SETUP_FIELDS = [
     {key:'toe', label:'Toe', unit:'mm'},
     {key:'camber', label:'Camber', unit:'deg'},
@@ -3925,17 +3943,25 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {key:'bumpRubber', label:'Bump rubber', unit:'mm'},
     {key:'gap', label:'Gap', unit:'mm'},
     {key:'packer', label:'Packer', unit:'mm'},
-    {key:'arbDiameter', label:'Anti roll bar diameter', unit:'mm'},
-    {key:'arbBlade', label:'Anti roll bar blade', unit:''},
     {key:'pushLength', label:'Push Length', unit:'mm'},
     {key:'rhChassis', label:'RH chassis', unit:'mm'},
-    {key:'rhUnderfloor', label:'RH underfloor', unit:'mm'}
+    {key:'rhUnderfloor', label:'RH underfloor', unit:'mm'},
+    {key:'cornerWeight', label:'Corner weight', unit:'Kg', noMirror:true}
   ];
+  // Champs partages (par essieu / voiture)
   const SETUP_SHARED_FIELDS = [
+    {key:'arbDiameterFront', label:'Anti roll bar diameter', unit:'mm'},
+    {key:'arbBladeFront', label:'Anti roll bar blade'},
+    {key:'brakeSetFront', label:'Frein Av', source:'brake'},
     {key:'plankFront', label:'Plank Front', source:'plank'},
+    {key:'divePlane', label:'Dive plane'},
+    {key:'arbDiameterRear', label:'Anti roll bar diameter', unit:'mm'},
+    {key:'arbBladeRear', label:'Anti roll bar blade'},
+    {key:'brakeSetRear', label:'Frein Ar', source:'brake'},
     {key:'plankRear', label:'Plank Rear', source:'plank'},
-    {key:'brakeSetFront', label:'Set frein avant', source:'brake'},
-    {key:'brakeSetRear', label:'Set frein arriere', source:'brake'},
+    {key:'wingAngle', label:'Wing Angle', unit:'deg'},
+    {key:'gurney', label:'Gurney'},
+    {key:'diffPreload', label:'Diff preload', unit:'N/m'},
     {key:'thirdFrontSpring', label:'3rd Elem. Front - Spring'},
     {key:'thirdFrontPreload', label:'3rd Elem. Front - Preload'},
     {key:'thirdFrontSprGap', label:'3rd Elem. Front - Spr Gap'},
@@ -3945,22 +3971,23 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {key:'thirdRearPreload', label:'3rd Elem. Rear - Preload'},
     {key:'thirdRearSprGap', label:'3rd Elem. Rear - Spr Gap'},
     {key:'thirdRearPacGap', label:'3rd Elem. Rear - Pac Gap'},
-    {key:'thirdRearBump', label:'3rd Elem. Rear - Bump Rubber'},
-    {key:'wingAngle', label:'Wing Angle (deg)'},
-    {key:'diffPreload', label:'Diff preload (N/m)'}
+    {key:'thirdRearBump', label:'3rd Elem. Rear - Bump Rubber'}
   ];
   const SETUP_WEIGHTS_FIELDS = [
     {key:'rake', label:'Rake (deg)'},
-    {key:'cwFL', label:'Corner weight FL (Kg)'},
-    {key:'cwFR', label:'Corner weight FR (Kg)'},
-    {key:'cwRL', label:'Corner weight RL (Kg)'},
-    {key:'cwRR', label:'Corner weight RR (Kg)'},
     {key:'elRollBalance', label:'El. Roll Balance (%)'},
     {key:'aeroBalance', label:'Aero Balance (%)'},
     {key:'totAeroLoad', label:'TOT Aero Load (Kg)'},
     {key:'totWeight', label:'TOT weight (Kg)'},
     {key:'stWdCrossWeight', label:'St. WD / Cross Weight (%)'}
   ];
+  // Groupes de disposition (box Avant / Arriere)
+  const SETUP_FRONT_AXLE = ['arbDiameterFront','arbBladeFront','brakeSetFront','plankFront','divePlane'];
+  const SETUP_REAR_AXLE = ['arbDiameterRear','arbBladeRear','brakeSetRear','plankRear','wingAngle','gurney','diffPreload'];
+  const SETUP_THIRD_FRONT = ['thirdFrontSpring','thirdFrontPreload','thirdFrontSprGap','thirdFrontPacGap','thirdFrontBump'];
+  const SETUP_THIRD_REAR = ['thirdRearSpring','thirdRearPreload','thirdRearSprGap','thirdRearPacGap','thirdRearBump'];
+  const SHARED_FIELD_BY_KEY = {};
+  SETUP_SHARED_FIELDS.forEach(f=>{ SHARED_FIELD_BY_KEY[f.key]=f; });
   const SETUP_CONDITION_FIELDS = [
     {key:'weather', label:'Meteo', type:'select', options:['Sec','Wet']},
     {key:'driver', label:'Pilote', type:'driver'},
@@ -4100,7 +4127,46 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         '<div style="flex:1;"><span class="small">Ce brouillon n\'entre dans l\'historique qu\'au clic sur Enregistrer.</span></div>'+
       '</div>';
     }
-    html += '<div class="setup-banner">MECHANICAL SET-UP</div>';
+    const roSel = readOnly ? ' disabled' : '';
+    const sharedControl = (key)=>{
+      const f = SHARED_FIELD_BY_KEY[key]; if(!f) return '';
+      if(f.source==='plank') return '<select'+roSel+' class="setupSharedInput" data-field="'+key+'">'+setupPlankOptions(cval(entry.shared[key]))+'</select>';
+      if(f.source==='brake') return '<select'+roSel+' class="setupSharedInput" data-field="'+key+'">'+setupBrakeOptions(cval(entry.shared[key]))+'</select>';
+      return '<input type="text"'+ro+' class="setupSharedInput" data-field="'+key+'" value="'+esc(entry.shared[key])+'">';
+    };
+    const axleRows = (keys, strip)=> keys.map(key=>{
+      const f = SHARED_FIELD_BY_KEY[key]; if(!f) return '';
+      const lab = strip ? f.label.replace(/^3rd Elem\. (Front|Rear) - /,'') : (f.label+(f.unit?' ['+f.unit+']':''));
+      return '<tr><td class="setup-label">'+lab+'</td><td>'+sharedControl(key)+'</td></tr>';
+    }).join('');
+    const axleBox = (title, axleKeys, thirdTitle, thirdKeys)=>
+      '<div class="setup-shared-box">'+
+        '<h5>'+title+'</h5>'+
+        '<table class="setup-weights-table"><tbody>'+axleRows(axleKeys,false)+'</tbody></table>'+
+        '<h5 style="margin-top:12px;">'+thirdTitle+'</h5>'+
+        '<table class="setup-weights-table"><tbody>'+axleRows(thirdKeys,true)+'</tbody></table>'+
+      '</div>';
+    const condBox = ()=>{
+      let h = '<div class="setup-shared-box"><h5>Conditions de session</h5>';
+      SETUP_CONDITION_FIELDS.forEach(f=>{
+        let ctl;
+        if(f.type==='select') ctl = '<select'+roSel+' class="setupCondInput" data-field="'+f.key+'"><option value="">(-)</option>'+f.options.map(o=>'<option value="'+o+'"'+(cval(entry.conditions[f.key])===o?' selected':'')+'>'+o+'</option>').join('')+'</select>';
+        else if(f.type==='driver') ctl = '<select'+roSel+' class="setupCondInput" data-field="'+f.key+'">'+setupDriverOptions(cval(entry.conditions[f.key]))+'</select>';
+        else ctl = '<input type="text"'+ro+' class="setupCondInput" data-field="'+f.key+'" value="'+esc(entry.conditions[f.key])+'">';
+        h += '<div class="setup-field-row"><label>'+f.label+'</label>'+ctl+'</div>';
+      });
+      return h + '</div>';
+    };
+
+    // 1) Essieux : AVANT / ARRIERE (avec 3eme element integre)
+    html += '<div class="setup-banner">AVANT / ARRIERE</div>';
+    html += '<div class="setup-shared-grid" style="margin-top:12px;">';
+    html += axleBox('AVANT', SETUP_FRONT_AXLE, '3eme element avant', SETUP_THIRD_FRONT);
+    html += axleBox('ARRIERE', SETUP_REAR_AXLE, '3eme element arriere', SETUP_THIRD_REAR);
+    html += '</div>';
+
+    // 2) Roues (corners) - saisie a gauche recopiee a droite
+    html += '<div class="setup-banner" style="margin-top:16px;">ROUES (saisie gauche recopiee a droite)</div>';
     html += '<div class="setup-corners-grid" style="margin-top:12px;">';
     SETUP_CORNERS.forEach(c=>{
       html += '<div class="setup-corner-card">';
@@ -4114,37 +4180,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     });
     html += '</div>';
 
-    const roSel = readOnly ? ' disabled' : '';
-    const sharedControl = (f)=>{
-      if(f.source==='plank') return '<select'+roSel+' class="setupSharedInput" data-field="'+f.key+'">'+setupPlankOptions(cval(entry.shared[f.key]))+'</select>';
-      if(f.source==='brake') return '<select'+roSel+' class="setupSharedInput" data-field="'+f.key+'">'+setupBrakeOptions(cval(entry.shared[f.key]))+'</select>';
-      return '<input type="text"'+ro+' class="setupSharedInput" data-field="'+f.key+'" value="'+esc(entry.shared[f.key])+'">';
-    };
-    const sharedBox = (title, fields, stripPrefix)=>{
-      let h = '<div class="setup-shared-box"><h5>'+title+'</h5>';
-      fields.forEach(f=>{
-        const lab = stripPrefix ? f.label.replace(/^3rd Elem\. (Front|Rear) - /,'') : f.label;
-        h += '<div class="setup-field-row"><label>'+lab+'</label>'+sharedControl(f)+'</div>';
-      });
-      return h + '</div>';
-    };
-    const condBox = ()=>{
-      let h = '<div class="setup-shared-box"><h5>Conditions de session</h5>';
-      SETUP_CONDITION_FIELDS.forEach(f=>{
-        let ctl;
-        if(f.type==='select') ctl = '<select'+roSel+' class="setupCondInput" data-field="'+f.key+'"><option value="">(-)</option>'+f.options.map(o=>'<option value="'+o+'"'+(cval(entry.conditions[f.key])===o?' selected':'')+'>'+o+'</option>').join('')+'</select>';
-        else if(f.type==='driver') ctl = '<select'+roSel+' class="setupCondInput" data-field="'+f.key+'">'+setupDriverOptions(cval(entry.conditions[f.key]))+'</select>';
-        else ctl = '<input type="text"'+ro+' class="setupCondInput" data-field="'+f.key+'" value="'+esc(entry.conditions[f.key])+'">';
-        h += '<div class="setup-field-row"><label>'+f.label+'</label>'+ctl+'</div>';
-      });
-      return h + '</div>';
-    };
-    html += '<div class="setup-shared-grid">';
+    // 3) Conditions + Homologation / Poids / Resultats
+    html += '<div class="setup-shared-grid" style="margin-top:16px;">';
     html += condBox();
-    html += sharedBox('Freins (set complet)', SETUP_SHARED_FIELDS.filter(f=>f.source==='brake'), false);
-    html += sharedBox('3rd Element Front', SETUP_SHARED_FIELDS.filter(f=>f.key.indexOf('thirdFront')===0), true);
-    html += sharedBox('3rd Element Rear', SETUP_SHARED_FIELDS.filter(f=>f.key.indexOf('thirdRear')===0), true);
-    html += sharedBox('Plank / Aero / Diff', SETUP_SHARED_FIELDS.filter(f=>['plankFront','plankRear','wingAngle','diffPreload'].indexOf(f.key)!==-1), false);
     html += '<div class="setup-shared-box"><h5>Homologation / Poids / Resultats</h5>';
     html += '<table class="setup-weights-table"><tbody>';
     SETUP_WEIGHTS_FIELDS.forEach(f=>{
@@ -4161,9 +4199,14 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         const corner = e.target.dataset.corner, field = e.target.dataset.field, val = e.target.value;
         const en = getSetupEntry(taskKey);
         en.corners[corner][field] = val;
-        // Symetrie : cote droit recopie automatiquement sur le cote gauche (modifiable ensuite)
-        if(corner==='fr') en.corners['fl'][field] = val;
-        else if(corner==='rr') en.corners['rl'][field] = val;
+        // Symetrie : saisie a gauche (FL/RL) recopiee a droite (FR/RR), modifiable ensuite. Sauf noMirror (ex: corner weight)
+        const fdef = SETUP_FIELDS.find(f=>f.key===field);
+        const mirror = {fl:'fr', rl:'rr'}[corner];
+        if(mirror && !(fdef && fdef.noMirror)){
+          en.corners[mirror][field] = val;
+          const mInp = container.querySelector('.setupFieldInput[data-corner="'+mirror+'"][data-field="'+field+'"]');
+          if(mInp) mInp.value = val;
+        }
         saveState();
       });
     });
