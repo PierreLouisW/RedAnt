@@ -1257,6 +1257,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
           ['fl','fr','rl','rr'].forEach(k=>{ if(typeof t.km[k]!=='string') t.km[k]=(t.km[k]==null?'':String(t.km[k])); });
           if(!t.coldPress || typeof t.coldPress!=='object') t.coldPress={fl:'',fr:'',rl:'',rr:''};
           ['fl','fr','rl','rr'].forEach(k=>{ if(typeof t.coldPress[k]!=='string') t.coldPress[k]=(t.coldPress[k]==null?'':String(t.coldPress[k])); });
+          if(!t.coldPressBySession || typeof t.coldPressBySession!=='object') t.coldPressBySession={};
           if(typeof t.notes!=='string') t.notes='';
           return t;
         }
@@ -3325,6 +3326,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
   // ---------- RUN SHEET ----------
   let selectedRunContext = {eventId:'', taskKey:''};
+  let pneusColdTaskKey = ''; // session selectionnee pour les pressions a froid par train
   const RS_COND = [
     {key:'sky', label:'Sky', type:'select', options:['Sunny','Cloudy','Overcast','Light rain','Rain']},
     {key:'windDir', label:'Wind dir'},
@@ -3891,12 +3893,20 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!ev){ box.innerHTML='<div class="small" style="margin-top:12px;">Choisissez un evenement.</div>'; return; }
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
     const CORN=['FL','FR','RL','RR']; const LC=['fl','fr','rl','rr'];
-    // Pressions a froid PAR TRAIN (a preparer avant la session)
-    let html='<h5 style="margin-top:12px;color:var(--accent);text-transform:uppercase;font-size:12px;letter-spacing:.4px;">Pressions à froid par train (avant session)</h5>';
+    // Session selectionnee pour les pressions a froid par train (par defaut : prochaine session de l'event, sinon 1ere)
+    const evTasks = ev.tasks||[];
+    if(!evTasks.some(t=>ev.id+'::'+t.id===pneusColdTaskKey)){
+      const next=findNextOfficialSessionDT();
+      pneusColdTaskKey = (next && String(next.ev.id)===String(ev.id)) ? (ev.id+'::'+next.t.id) : (evTasks.length? (ev.id+'::'+evTasks[0].id):'');
+    }
+    // Pressions a froid PAR TRAIN et PAR SESSION (a preparer avant la session)
+    let html='<div class="row" style="margin-top:12px;align-items:center;gap:10px;flex-wrap:wrap;"><h5 style="margin:0;color:var(--accent);text-transform:uppercase;font-size:12px;letter-spacing:.4px;">Pressions à froid par train</h5>'+
+      '<label style="margin:0;">Session <select id="pneusColdSession">'+todoTaskSelectOptions(ev.id, pneusColdTaskKey)+'</select></label></div>';
     if(ev.tyreSets && ev.tyreSets.length){
       html+='<div class="rs-laps-wrap"><table class="rs-laps rs-pneus-table"><thead><tr><th>Train de pneus</th><th>Froid FL</th><th>Froid FR</th><th>Froid RL</th><th>Froid RR</th></tr></thead><tbody>'+
-        ev.tyreSets.map((t,i)=>'<tr><td style="text-align:left;font-weight:600;">'+esc(tyreSetLabel(t.code))+'</td>'+
-          LC.map(k=>'<td class="rs-pneus-cold"><input type="text" class="rsTrainCold" data-i="'+i+'" data-k="'+k+'" value="'+esc((t.coldPress&&t.coldPress[k])||'')+'"></td>').join('')+'</tr>').join('')+
+        ev.tyreSets.map((t,i)=>{ const cps=(t.coldPressBySession&&t.coldPressBySession[pneusColdTaskKey])||{};
+          return '<tr><td style="text-align:left;font-weight:600;">'+esc(tyreSetLabel(t.code))+'</td>'+
+          LC.map(k=>'<td class="rs-pneus-cold"><input type="text" class="rsTrainCold" data-i="'+i+'" data-k="'+k+'" value="'+esc(cps[k]||'')+'"></td>').join('')+'</tr>'; }).join('')+
         '</tbody></table></div>';
     } else {
       html+='<div class="small">Aucun train ajouté à l\'event (onglet Accueil &gt; Pneus de l\'event).</div>';
@@ -3934,7 +3944,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     html+='</tbody></table></div>';
     box.innerHTML=html;
     box.querySelectorAll('.rsPneusCold').forEach(el=>el.addEventListener('change', e=>{ const r=getRunsheet(e.target.dataset.task); const st=r&&r.stints[Number(e.target.dataset.stint)]; if(st){ st.press.cold[e.target.dataset.corner]=e.target.value; saveState(); } }));
-    box.querySelectorAll('.rsTrainCold').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); const t=ev.tyreSets[i]; if(t){ if(!t.coldPress) t.coldPress={fl:'',fr:'',rl:'',rr:''}; t.coldPress[e.target.dataset.k]=e.target.value; saveState(); } }));
+    const coldSessSel=document.getElementById('pneusColdSession');
+    if(coldSessSel) coldSessSel.addEventListener('change', e=>{ pneusColdTaskKey=e.target.value; renderRunPneusTab(); });
+    box.querySelectorAll('.rsTrainCold').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); const t=ev.tyreSets[i]; if(t && pneusColdTaskKey){ if(!t.coldPressBySession) t.coldPressBySession={}; if(!t.coldPressBySession[pneusColdTaskKey]) t.coldPressBySession[pneusColdTaskKey]={fl:'',fr:'',rl:'',rr:''}; t.coldPressBySession[pneusColdTaskKey][e.target.dataset.k]=e.target.value; saveState(); } }));
   }
   // ---------- RUN PLAN ----------
   function normPlanRun(r){ ['driver','tyreSet','laps','fuelAdded','description','changes','pitTime','startTime'].forEach(k=>{ if(typeof r[k]!=='string') r[k]=(r[k]==null?'':String(r[k])); }); if(typeof r.box!=='boolean') r.box=false; return r; }
