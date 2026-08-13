@@ -229,6 +229,12 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-laps input{width:100%;padding:3px 4px;font-size:12px;text-align:center;background:transparent;border:1px solid transparent;}
 .rs-laps input:focus{background:var(--panel2);border-color:var(--border);}
 .rs-laps input.rs-notes{text-align:left;}
+.rs-laps td.rs-sec input{width:46px;}
+.rs-oi-sel{width:50px;font-size:11px;padding:2px;text-align:center;}
+.rs-tl-chk{width:auto;}
+.rs-pos-inp{width:38px;text-align:center;}
+.rs-laps td.rs-pos.rs-pos-up{background:rgba(31,157,85,0.38);font-weight:700;}
+.rs-laps td.rs-pos.rs-pos-down{background:rgba(192,57,43,0.42);font-weight:700;}
 .rs-laps td.rs-best-session{background:rgba(155,89,182,0.42);font-weight:700;}
 .rs-laps td.rs-best-stint{background:rgba(31,157,85,0.32);font-weight:700;}
 .rs-status-sel{width:auto;min-width:64px;font-weight:700;border:none;border-radius:5px;padding:3px 4px;text-align:center;}
@@ -3314,6 +3320,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function getStint(taskKey){ const r=getRunsheet(taskKey); return r ? r.stints[r.activeStint] : null; }
   // Temps effectif d'un tour (somme secteurs sinon laptime saisi)
   function lapEffSec(lp){ const a=lapAutoSec(lp); return a!=null?a:parseLapTime(lp.laptime); }
+  // Tour "propre" : statut Green + ni Out ni In ni Out/In (exclu du calcul de l'Avg)
+  function isCleanLap(lp){ if((lp.status||'green')!=='green') return false; const m=(lp.mark||''); return !(m==='O'||m==='I'||m==='O/I'); }
   // Horloge HH:MM(:SS) <-> secondes
   function parseClock(str){ if(!str) return null; const m=String(str).trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/); if(!m) return null; return (+m[1])*3600+(+m[2])*60+(m[3]?+m[3]:0); }
   function fmtHMS(sec){ if(sec==null||!isFinite(sec)) return '-'; sec=Math.max(0,Math.round(sec)); const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60; return (h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(s<10?'0':'')+s; }
@@ -3424,7 +3432,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
     // Laps table (corps rempli par renderLapsBody) — bouton d'ajout AU-DESSUS pour ne pas bouger
     let lapsTable = '<div class="row" style="margin-bottom:8px;align-items:center;"><button class="secondary" id="rsAddLapBtn">+ Ajouter un tour</button><div id="rsSummary" class="rs-summary"></div></div>'+
-      '<div class="rs-laps-wrap"><table class="rs-laps"><thead><tr><th>L#</th><th>Statut</th><th>O/I</th><th>Laptime</th><th>S1 (s)</th><th>S2 (s)</th><th>S3 (s)</th><th>Speed</th><th>Conso</th><th>Fuel</th><th>Notes</th><th></th></tr></thead><tbody id="rsLapsBody"></tbody></table></div>';
+      '<div class="rs-laps-wrap"><table class="rs-laps"><thead><tr><th>L#</th><th>Statut</th><th>O/I</th><th>Laptime</th><th>S1</th><th>S2</th><th>S3</th><th>Speed</th><th title="Track limits">TL</th><th title="Classement">Pos</th><th>Conso</th><th>Fuel</th><th>Notes</th><th></th></tr></thead><tbody id="rsLapsBody"></tbody></table></div>';
 
     // Comments
     let comments = '<div class="rs-comments">'+
@@ -3465,7 +3473,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       lapsBody.addEventListener('change', e=>{
         const t=e.target; if(!t.dataset || t.dataset.i==null) return;
         const i=Number(t.dataset.i), f=t.dataset.f; const stt=getStint(taskKey); const lp=stt.laps[i]; if(!lp) return;
-        lp[f]=t.value;
+        lp[f]=(t.type==='checkbox')?t.checked:t.value;
         // conso auto quand le statut piste change -> rebuild complet (couleurs)
         if(f==='status'){ const ref=(runEventObj()&&runEventObj().refConditions)||{}; if(t.value==='red') lp.conso='0'; else { const rk=rsTrack(t.value).ref; if(rk && ref[rk] && ref[rk].conso!=null && ref[rk].conso!=='') lp.conso=String(ref[rk].conso); } saveState(); renderLapsBody(taskKey); return; }
         // laptime = somme des secteurs si les 3 sont renseignes
@@ -3495,10 +3503,12 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       return '<tr data-i="'+i+'">'+
         '<td>'+(i+1)+'</td>'+
         '<td>'+statusSel+'</td>'+
-        '<td><input type="text" class="rsLap" data-i="'+i+'" data-f="mark" value="'+esc(lp.mark)+'" style="width:34px;"></td>'+
+        '<td><select class="rsLap rs-oi-sel" data-i="'+i+'" data-f="mark">'+['','O','I','O/I'].map(o=>'<option value="'+o+'" '+((lp.mark||'')===o?'selected':'')+'>'+(o||'-')+'</option>').join('')+'</select></td>'+
         '<td class="rsLaptime">'+laptimeCell+'</td>'+
         '<td class="rs-sec" data-sec="s1">'+inp('s1')+'</td><td class="rs-sec" data-sec="s2">'+inp('s2')+'</td><td class="rs-sec" data-sec="s3">'+inp('s3')+'</td>'+
         '<td>'+inp('speed')+'</td>'+
+        '<td><input type="checkbox" class="rsLap rs-tl-chk" data-i="'+i+'" data-f="tl" '+(lp.tl?'checked':'')+'></td>'+
+        '<td class="rs-pos" data-i="'+i+'"><input type="text" class="rsLap rs-pos-inp" data-i="'+i+'" data-f="pos" value="'+esc(lp.pos||'')+'"></td>'+
         '<td><input type="text" class="rsLap" data-i="'+i+'" data-f="conso" value="'+esc(lp.conso||'')+'" style="width:52px;"></td>'+
         '<td class="rs-fuel">'+(fuelRem!=null?fuelRem.toFixed(2):'-')+'</td>'+
         '<td>'+inp('notes',' rs-notes')+'</td>'+
@@ -3507,6 +3517,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     }).join('');
     updateRunSummary(taskKey);
     applyBestColors(taskKey);
+    applyPosColors(taskKey);
     renderRunFrieze(taskKey);
   }
   // Coloration meilleur secteur/tour : violet = meilleur de la session (tous relais), vert = meilleur du relais en cours
@@ -3524,6 +3535,18 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const tr=body.querySelector('tr[data-i="'+i+'"]'); if(!tr) return;
       setCell(tr.querySelector('.rsLaptime'), lapEffSec(lp), sBestLap, tBestLap);
       ['s1','s2','s3'].forEach(f=>{ setCell(tr.querySelector('td.rs-sec[data-sec="'+f+'"]'), parseLapTime(lp[f]), sBestSec[f], tBestSec[f]); });
+    });
+  }
+  // Coloration du classement : vert si place gagnee, rouge si perdue, rien si stable (vs tour precedent renseigne)
+  function applyPosColors(taskKey){
+    const st=getStint(taskKey); if(!st) return;
+    const body=document.getElementById('rsLapsBody'); if(!body) return;
+    let prev=null;
+    st.laps.forEach((lp,i)=>{
+      const cell=body.querySelector('td.rs-pos[data-i="'+i+'"]'); if(!cell) return;
+      cell.classList.remove('rs-pos-up','rs-pos-down');
+      const v=parseFloat(String(lp.pos||'').replace(',','.'));
+      if(!isNaN(v)){ if(prev!=null){ if(v<prev) cell.classList.add('rs-pos-up'); else if(v>prev) cell.classList.add('rs-pos-down'); } prev=v; }
     });
   }
   // Recalcule les cellules derivees (laptime auto, fuel, resume, frise) SANS reconstruire les inputs
@@ -3547,6 +3570,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     });
     updateRunSummary(taskKey);
     applyBestColors(taskKey);
+    applyPosColors(taskKey);
     renderRunFrieze(taskKey);
   }
   function updateRunSummary(taskKey){
@@ -3555,7 +3579,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const lapSecs=st.laps.map(l=>{ const a=lapAutoSec(l); return a!=null?a:parseLapTime(l.laptime); });
     const laptimes=lapSecs.filter(v=>v!=null);
     const best=laptimes.length?Math.min.apply(null,laptimes):null;
-    const avg=laptimes.length?laptimes.reduce((a,b)=>a+b,0)/laptimes.length:null;
+    // Avg : uniquement les tours "propres" (statut Green + ni Out ni In ni Out/In)
+    const cleanSecs=st.laps.map((l,ix)=>isCleanLap(l)?lapSecs[ix]:null).filter(v=>v!=null);
+    const avg=cleanSecs.length?cleanSecs.reduce((a,b)=>a+b,0)/cleanSecs.length:null;
     const bestSec=(f)=>{ const v=st.laps.map(l=>parseLapTime(l[f])).filter(x=>x!=null); return v.length?Math.min.apply(null,v):null; };
     const b1=bestSec('s1'),b2=bestSec('s2'),b3=bestSec('s3');
     const theo=(b1!=null&&b2!=null&&b3!=null)?(b1+b2+b3):null;
