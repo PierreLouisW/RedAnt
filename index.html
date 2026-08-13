@@ -254,6 +254,13 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-plan-table td.rs-rem-ok{background:rgba(31,157,85,0.30);font-weight:700;}
 .rs-plan-table td.rs-rem-warn{background:rgba(230,145,56,0.35);font-weight:700;}
 .rs-plan-table td.rs-rem-neg{background:rgba(192,57,43,0.40);font-weight:700;}
+.rs-chart-wrap{margin:12px 0;overflow-x:auto;}
+.rs-chart{width:100%;max-width:900px;height:auto;display:block;background:var(--panel);border:1px solid var(--border);border-radius:8px;}
+.rs-chart-legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;margin-bottom:6px;}
+.rs-chart-legend .rs-leg-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle;}
+.rs-session-table td,.rs-session-table th{white-space:nowrap;}
+.rs-session-table tr.rs-session-carbest td{background:rgba(226,35,26,0.12);font-weight:600;}
+.rs-session-table tr.rs-session-weekend td{background:rgba(155,89,182,0.28);font-weight:700;}
 .rs-fr-pit-lbl{font-size:10px;text-align:center;margin-top:3px;line-height:1.3;color:var(--muted);}
 .rs-tyre-table{margin-top:8px;}
 .rs-tyre-table tr.compound-slick td{background:rgba(155,89,182,0.18);}
@@ -970,6 +977,7 @@ body.auth-locked #authGate{ display:flex; }
       <button data-rsub="accueil" class="active">Accueil (event)</button>
       <button data-rsub="plan">Run Plan</button>
       <button data-rsub="run">Runsheet</button>
+      <button data-rsub="resume">Résumé</button>
     </div>
     <div class="run-sub active" id="rsub-accueil">
       <div id="runAccueilContent" style="margin-top:12px;"></div>
@@ -987,6 +995,17 @@ body.auth-locked #authGate{ display:flex; }
         <label>Session / seance <select id="runTaskSelect"></select></label>
       </div>
       <div id="runsheetContent"></div>
+    </div>
+    <div class="run-sub" id="rsub-resume">
+      <div class="measure-context-row" style="margin-top:12px;">
+        <label>Evenement <select id="resumeEventSelect"></select></label>
+      </div>
+      <div class="subtabs" id="resumeSubtabs" style="margin-top:10px;">
+        <button data-resub="weather" class="active">Weather</button>
+        <button data-resub="session">Session</button>
+        <button data-resub="pace">Pace / progression</button>
+      </div>
+      <div id="resumeContent"></div>
     </div>
   </div>
 </section>
@@ -1201,6 +1220,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         return {code:String(t||''), name:'', mounted:false, rimSet:'', km:{fl:'',fr:'',rl:'',rr:''}, notes:''};
       });
       if(!Array.isArray(ev.drivers)) ev.drivers = [];
+      if(!Array.isArray(ev.weatherLog)) ev.weatherLog = [];
       ev.tasks.forEach(t=>{
         if(typeof t.date!=='string' || !t.date) t.date = ev.date;
         if(typeof t.startTime!=='string') t.startTime = '';
@@ -3738,6 +3758,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const p=document.getElementById('rsub-'+which); if(p) p.classList.add('active');
     if(which==='accueil') renderRunAccueil();
     else if(which==='plan'){ autoSelectRunContext(); renderRunPlanTab(); }
+    else if(which==='resume'){ renderResumeTab(); }
     else { autoSelectRunContext(); renderRunsheetTab(); }
   }
   // ---------- RUN PLAN ----------
@@ -3848,6 +3869,175 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     box.querySelectorAll('.rsPlanDel').forEach(btn=>btn.addEventListener('click',()=>{ getRunPlan(taskKey).runs.splice(Number(btn.dataset.i),1); saveState(); renderRunPlanTab(); }));
     document.getElementById('planAddRunBtn').addEventListener('click',()=>{ const p=getRunPlan(taskKey); const prev=p.runs[p.runs.length-1]||{}; p.runs.push(normPlanRun({driver:prev.driver||'', tyreSet:prev.tyreSet||'', laps:'', fuelAdded:''})); saveState(); renderRunPlanTab(); });
   }
+
+  // ---------- RESUME (graphiques) ----------
+  let activeResumeSub='weather';
+  // Toutes les sessions de l'event ayant une runsheet, avec les tours enrichis (temps, secteurs, fuel restant, km pneus)
+  function eventSessions(ev){
+    if(!ev) return [];
+    const circuitKmKm=(Number(ev.circuitKm)||0)/1000;
+    const sessions=[];
+    (ev.tasks||[]).forEach(t=>{
+      const taskKey=ev.id+'::'+t.id;
+      if(!STATE.runsheets[taskKey]) return;
+      const r=getRunsheet(taskKey);
+      const laps=[];
+      r.stints.forEach(st=>{
+        const tyreStart=st.tyreSet?tyreSetStartKm(st.tyreSet):null;
+        const startFuel=effectiveStartFuel(st);
+        let cumConso=0, doneInStint=0;
+        st.laps.forEach((lp)=>{
+          const tSec=lapEffSec(lp);
+          const conso=parseFloat(String(lp.conso||'').replace(',','.')); if(!isNaN(conso)) cumConso+=conso;
+          if(tSec!=null) doneInStint++;
+          const fuelRem=(startFuel!=null)?(startFuel-cumConso):null;
+          const tyreKm=(tyreStart!=null)?(tyreStart+doneInStint*circuitKmKm):null;
+          laps.push({driver:st.driver||'(?)', tSec:tSec, s1:parseLapTime(lp.s1), s2:parseLapTime(lp.s2), s3:parseLapTime(lp.s3), fuelRem:fuelRem, tyreKm:tyreKm});
+        });
+      });
+      if(laps.length) sessions.push({taskKey:taskKey, name:t.text||'Session', date:t.date||'', laps:laps});
+    });
+    sessions.sort((a,b)=> ((a.date+'')<(b.date+''))?-1:(((a.date+'')>(b.date+''))?1:0));
+    return sessions;
+  }
+  function renderResumeTab(){
+    const evtSel=document.getElementById('resumeEventSelect'); if(!evtSel) return;
+    if(!selectedRunContext.eventId){ const next=findNextOfficialSessionDT(); if(next) selectedRunContext.eventId=String(next.ev.id); }
+    evtSel.innerHTML=eventSelectOptions(selectedRunContext.eventId);
+    document.querySelectorAll('#resumeSubtabs button').forEach(b=>b.classList.toggle('active', b.dataset.resub===activeResumeSub));
+    const box=document.getElementById('resumeContent'); const ev=runEventObj();
+    if(!ev){ box.innerHTML='<div class="small" style="margin-top:12px;">Choisissez un evenement.</div>'; return; }
+    if(activeResumeSub==='weather') renderResumeWeather(box, ev);
+    else if(activeResumeSub==='session') renderResumeSession(box, ev);
+    else renderResumePace(box, ev);
+  }
+  function renderResumeWeather(box, ev){
+    const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const log=ev.weatherLog||[];
+    let html='<p class="small" style="margin-top:12px;">Relevez les temperatures air/piste a tout moment du week-end (meme hors session).</p>';
+    // chart
+    html+='<div id="weatherChart" class="rs-chart-wrap"></div>';
+    html+='<div class="row" style="margin:8px 0;"><button class="secondary" id="weatherAddBtn">+ Ajouter un releve</button></div>';
+    html+='<div class="rs-laps-wrap"><table class="rs-laps rs-weather-table"><thead><tr><th>Date</th><th>Heure</th><th>Air (°C)</th><th>Piste (°C)</th><th>Note</th><th></th></tr></thead><tbody>';
+    log.forEach((w,i)=>{ html+='<tr data-i="'+i+'">'+
+      '<td><input type="date" class="rsWeather" data-i="'+i+'" data-f="date" value="'+esc(w.date)+'"></td>'+
+      '<td><input type="text" class="rsWeather" data-i="'+i+'" data-f="time" value="'+esc(w.time)+'" placeholder="HH:MM" style="width:64px;"></td>'+
+      '<td><input type="text" class="rsWeather" data-i="'+i+'" data-f="airTemp" value="'+esc(w.airTemp)+'" style="width:60px;"></td>'+
+      '<td><input type="text" class="rsWeather" data-i="'+i+'" data-f="trackTemp" value="'+esc(w.trackTemp)+'" style="width:60px;"></td>'+
+      '<td><input type="text" class="rsWeather rs-notes" data-i="'+i+'" data-f="note" value="'+esc(w.note)+'" style="min-width:140px;"></td>'+
+      '<td><button class="rs-lap-del rsWeatherDel" data-i="'+i+'" title="Supprimer">&times;</button></td>'+
+    '</tr>'; });
+    html+='</tbody></table></div>';
+    box.innerHTML=html;
+    // chart data (ordre chronologique)
+    const sorted=log.map((w,i)=>({w,i})).sort((a,b)=>((a.w.date+' '+a.w.time)<(b.w.date+' '+b.w.time)?-1:1));
+    const air=[], track=[];
+    sorted.forEach((o,k)=>{ const a=parseFloat(String(o.w.airTemp).replace(',','.')); const t=parseFloat(String(o.w.trackTemp).replace(',','.')); air.push({x:k+1, y:isNaN(a)?null:a, lbl:(o.w.date||'')+' '+(o.w.time||'')}); track.push({x:k+1, y:isNaN(t)?null:t}); });
+    document.getElementById('weatherChart').innerHTML = svgLineChart([
+      {label:'Air', color:'#e2231a', points:air},
+      {label:'Piste', color:'#e69138', points:track}
+    ], {yFmt:v=>v.toFixed(0)+'°', xLabel:'Relevés'});
+    box.querySelectorAll('.rsWeather').forEach(el=>el.addEventListener('change',e=>{ const i=Number(e.target.dataset.i); ev.weatherLog[i][e.target.dataset.f]=e.target.value; saveState(); renderResumeTab(); }));
+    box.querySelectorAll('.rsWeatherDel').forEach(btn=>btn.addEventListener('click',()=>{ ev.weatherLog.splice(Number(btn.dataset.i),1); saveState(); renderResumeTab(); }));
+    document.getElementById('weatherAddBtn').addEventListener('click',()=>{ const now=new Date(); const d=now.toISOString().slice(0,10); const hh=('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2); ev.weatherLog.push({date:d, time:hh, airTemp:'', trackTemp:'', note:''}); saveState(); renderResumeTab(); });
+  }
+  function renderResumeSession(box, ev){
+    const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const sessions=eventSessions(ev);
+    if(!sessions.length){ box.innerHTML='<div class="small" style="margin-top:12px;">Aucune donnee de run. Remplissez des tours dans les runsheets.</div>'; return; }
+    const minOf=(arr)=>arr.length?Math.min.apply(null,arr):null;
+    const bestSecAll={s1:[],s2:[],s3:[]}; let bestLapAll=null;
+    let html='<div class="rs-laps-wrap"><table class="rs-laps rs-session-table"><thead><tr><th>Session</th><th>Pilote</th><th>Best lap</th><th>S1</th><th>S2</th><th>S3</th><th>Théo</th><th>Km (best)</th><th>Fuel (best)</th><th>Km total</th></tr></thead><tbody>';
+    const circuitKmKm=(Number(ev.circuitKm)||0)/1000;
+    sessions.forEach(s=>{
+      const byDrv={}; s.laps.forEach(l=>{ (byDrv[l.driver]=byDrv[l.driver]||[]).push(l); });
+      // best de la session (voiture)
+      const sTimed=s.laps.filter(l=>l.tSec!=null);
+      let carBest=sTimed.length?sTimed.reduce((a,b)=>a.tSec<b.tSec?a:b):null;
+      const cs1=minOf(s.laps.map(l=>l.s1).filter(x=>x!=null)), cs2=minOf(s.laps.map(l=>l.s2).filter(x=>x!=null)), cs3=minOf(s.laps.map(l=>l.s3).filter(x=>x!=null));
+      const cTheo=(cs1!=null&&cs2!=null&&cs3!=null)?cs1+cs2+cs3:null;
+      Object.keys(byDrv).forEach(drv=>{
+        const dl=byDrv[drv]; const timed=dl.filter(l=>l.tSec!=null);
+        const best=timed.length?timed.reduce((a,b)=>a.tSec<b.tSec?a:b):null;
+        const b1=minOf(dl.map(l=>l.s1).filter(x=>x!=null)), b2=minOf(dl.map(l=>l.s2).filter(x=>x!=null)), b3=minOf(dl.map(l=>l.s3).filter(x=>x!=null));
+        const theo=(b1!=null&&b2!=null&&b3!=null)?b1+b2+b3:null;
+        const totalKm=timed.length*circuitKmKm;
+        const d=driverByName(drv);
+        html+='<tr>'+
+          '<td style="text-align:left;">'+esc(s.name)+'</td>'+
+          '<td style="text-align:left;"><span class="driver-dot" style="background:'+(d?d.color:'#888')+';"></span> '+esc(drv)+'</td>'+
+          '<td><b>'+fmtLapTime(best?best.tSec:null)+'</b></td>'+
+          '<td>'+(b1!=null?b1.toFixed(3):'-')+'</td><td>'+(b2!=null?b2.toFixed(3):'-')+'</td><td>'+(b3!=null?b3.toFixed(3):'-')+'</td>'+
+          '<td>'+fmtLapTime(theo)+'</td>'+
+          '<td>'+(best&&best.tyreKm!=null?Math.round(best.tyreKm)+' km':'-')+'</td>'+
+          '<td>'+(best&&best.fuelRem!=null?best.fuelRem.toFixed(1)+' L':'-')+'</td>'+
+          '<td>'+(totalKm>0?totalKm.toFixed(1)+' km':'-')+'</td>'+
+        '</tr>';
+      });
+      // ligne best voiture de la session
+      html+='<tr class="rs-session-carbest"><td style="text-align:left;">'+esc(s.name)+'</td><td style="text-align:left;">★ Voiture</td>'+
+        '<td><b>'+fmtLapTime(carBest?carBest.tSec:null)+'</b></td>'+
+        '<td>'+(cs1!=null?cs1.toFixed(3):'-')+'</td><td>'+(cs2!=null?cs2.toFixed(3):'-')+'</td><td>'+(cs3!=null?cs3.toFixed(3):'-')+'</td>'+
+        '<td>'+fmtLapTime(cTheo)+'</td><td>-</td><td>-</td><td>'+(sTimed.length*circuitKmKm).toFixed(1)+' km</td></tr>';
+      // cumul week-end
+      if(carBest && (bestLapAll==null || carBest.tSec<bestLapAll.tSec)) bestLapAll=carBest;
+      if(cs1!=null) bestSecAll.s1.push(cs1); if(cs2!=null) bestSecAll.s2.push(cs2); if(cs3!=null) bestSecAll.s3.push(cs3);
+    });
+    // ligne best week-end voiture
+    const ws1=minOf(bestSecAll.s1), ws2=minOf(bestSecAll.s2), ws3=minOf(bestSecAll.s3);
+    const wTheo=(ws1!=null&&ws2!=null&&ws3!=null)?ws1+ws2+ws3:null;
+    html+='<tr class="rs-session-weekend"><td style="text-align:left;" colspan="2">★★ Meilleur week-end (voiture)</td>'+
+      '<td><b>'+fmtLapTime(bestLapAll?bestLapAll.tSec:null)+'</b></td>'+
+      '<td>'+(ws1!=null?ws1.toFixed(3):'-')+'</td><td>'+(ws2!=null?ws2.toFixed(3):'-')+'</td><td>'+(ws3!=null?ws3.toFixed(3):'-')+'</td>'+
+      '<td>'+fmtLapTime(wTheo)+'</td><td>-</td><td>-</td><td>-</td></tr>';
+    html+='</tbody></table></div>';
+    box.innerHTML=html;
+  }
+  function renderResumePace(box, ev){
+    const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const metric=box.getAttribute('data-pace-metric')||'s1';
+    const sessions=eventSessions(ev);
+    if(!sessions.length){ box.innerHTML='<div class="small" style="margin-top:12px;">Aucune donnee de run.</div>'; return; }
+    const METRICS=[{k:'s1',l:'Secteur 1'},{k:'s2',l:'Secteur 2'},{k:'s3',l:'Secteur 3'},{k:'lap',l:'Tour complet'}];
+    let html='<div class="row" style="margin-top:12px;align-items:center;gap:10px;"><label style="margin:0;">Donnée</label><select id="paceMetric">'+METRICS.map(m=>'<option value="'+m.k+'" '+(m.k===metric?'selected':'')+'>'+m.l+'</option>').join('')+'</select><span class="small">Chaque courbe = un pilote, X = numéro de tour du week-end.</span></div>';
+    html+='<div id="paceChart" class="rs-chart-wrap"></div>';
+    box.innerHTML=html;
+    // series par pilote
+    const byDriver={};
+    sessions.forEach(s=>{ s.laps.forEach(l=>{ const dd=byDriver[l.driver]=byDriver[l.driver]||{n:0,points:[]}; dd.n++; const y=(metric==='lap')?l.tSec:l[metric]; if(y!=null) dd.points.push({x:dd.n,y:y}); }); });
+    const series=Object.keys(byDriver).map(drv=>{ const d=driverByName(drv); return {label:drv, color:d?d.color:'#888', points:byDriver[drv].points}; });
+    const yFmt=(metric==='lap')?(v=>fmtLapTime(v)):(v=>v.toFixed(2)+'s');
+    document.getElementById('paceChart').innerHTML=svgLineChart(series, {yFmt:yFmt, xLabel:'Tour'});
+    document.getElementById('paceMetric').addEventListener('change',e=>{ box.setAttribute('data-pace-metric', e.target.value); renderResumePace(box, ev); });
+  }
+  // Graphe SVG multi-courbes generique
+  function svgLineChart(series, opts){
+    opts=opts||{}; const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const W=opts.width||820, H=opts.height||340, padL=54, padR=14, padT=14, padB=34;
+    const allX=[], allY=[];
+    series.forEach(s=>s.points.forEach(p=>{ if(p.y!=null){ allX.push(p.x); allY.push(p.y); } }));
+    if(!allY.length) return '<div class="small">Pas de données à afficher.</div>';
+    const xMin=Math.min.apply(null,allX), xMax=Math.max.apply(null,allX);
+    let yMin=Math.min.apply(null,allY), yMax=Math.max.apply(null,allY);
+    if(yMin===yMax){ yMin-=1; yMax+=1; } const ypad=(yMax-yMin)*0.08; yMin-=ypad; yMax+=ypad;
+    const xr=(xMax-xMin)||1, yr=(yMax-yMin)||1;
+    const px=x=>padL+(x-xMin)/xr*(W-padL-padR); const py=y=>padT+(1-(y-yMin)/yr)*(H-padT-padB);
+    const yFmt=opts.yFmt||(v=>v.toFixed(1));
+    let svg='<svg viewBox="0 0 '+W+' '+H+'" class="rs-chart" preserveAspectRatio="xMidYMid meet">';
+    for(let i=0;i<=4;i++){ const v=yMin+yr*i/4; const y=py(v); svg+='<line x1="'+padL+'" y1="'+y.toFixed(1)+'" x2="'+(W-padR)+'" y2="'+y.toFixed(1)+'" stroke="rgba(255,255,255,0.08)"/><text x="'+(padL-6)+'" y="'+(y+3).toFixed(1)+'" fill="#9aa4af" font-size="10" text-anchor="end">'+esc(yFmt(v))+'</text>'; }
+    const xStep=Math.max(1,Math.ceil((xMax-xMin)/10));
+    for(let x=Math.ceil(xMin);x<=xMax;x+=xStep){ const xx=px(x); svg+='<line x1="'+xx.toFixed(1)+'" y1="'+padT+'" x2="'+xx.toFixed(1)+'" y2="'+(H-padB)+'" stroke="rgba(255,255,255,0.05)"/><text x="'+xx.toFixed(1)+'" y="'+(H-padB+14)+'" fill="#9aa4af" font-size="10" text-anchor="middle">'+x+'</text>'; }
+    series.forEach(s=>{ const pts=s.points.filter(p=>p.y!=null).slice().sort((a,b)=>a.x-b.x); if(!pts.length) return;
+      const d=pts.map((p,i)=>(i?'L':'M')+px(p.x).toFixed(1)+' '+py(p.y).toFixed(1)).join(' ');
+      svg+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="2"/>';
+      pts.forEach(p=>{ svg+='<circle cx="'+px(p.x).toFixed(1)+'" cy="'+py(p.y).toFixed(1)+'" r="2.4" fill="'+s.color+'"/>'; });
+    });
+    svg+='</svg>';
+    const legend='<div class="rs-chart-legend">'+series.filter(s=>s.points.some(p=>p.y!=null)).map(s=>'<span><span class="rs-leg-dot" style="background:'+s.color+'"></span>'+esc(s.label)+'</span>').join('')+'</div>';
+    return legend+svg;
+  }
+  document.querySelectorAll('#resumeSubtabs button').forEach(btn=>btn.addEventListener('click', ()=>{ activeResumeSub=btn.dataset.resub; const box=document.getElementById('resumeContent'); if(box) box.removeAttribute('data-pace-metric'); renderResumeTab(); }));
+  (function(){ const s=document.getElementById('resumeEventSelect'); if(s) s.addEventListener('change', e=>{ selectedRunContext.eventId=e.target.value; renderResumeTab(); }); })();
   document.querySelectorAll('#runSubtabs button').forEach(btn=>btn.addEventListener('click', ()=>showRunSub(btn.dataset.rsub)));
 
   // ---------- HEADER / ALERTS ----------
