@@ -190,6 +190,15 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .cal-reminder select{width:auto;padding:5px 6px;font-size:12px;}
 .wa-btn{background:#25D366;color:#04250f;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;}
 .cal-del{background:transparent;border:none;color:var(--due1);cursor:pointer;font-size:16px;padding:0 4px;}
+.drivers-list{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
+.driver-row{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;flex-wrap:wrap;}
+.driver-row input[type="color"]{width:34px;height:30px;padding:0;border:1px solid var(--border);border-radius:6px;flex:0 0 auto;cursor:pointer;background:none;}
+.driver-row .driverName{flex:1.5;min-width:130px;}
+.driver-row .driverCat{flex:0 0 auto;width:auto;min-width:120px;}
+.driver-row .driverNote{flex:1;min-width:120px;}
+.driver-cat-pill{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;color:#fff;}
+.driver-chip{display:inline-flex;align-items:center;gap:5px;}
+.driver-dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex:0 0 auto;}
 .contacts-list{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
 .contact-row{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--panel2);border-radius:6px;font-size:13px;}
 .contact-row .c-phone{color:var(--muted);}
@@ -611,6 +620,7 @@ body.auth-locked #authGate{ display:flex; }
     <button data-vsub="parts" class="active">Etat des pieces</button>
     <button data-vsub="stock">Stock</button>
     <button data-vsub="buildsheet">Buildsheet</button>
+    <button data-vsub="drivers">Pilotes</button>
   </div>
 
   <div class="voiture-sub active" id="vsub-parts">
@@ -828,6 +838,13 @@ body.auth-locked #authGate{ display:flex; }
       <span class="small">Pieces suspension par coin (auto), + roues/freins et pieces communes assignees au statut "Voiture". Pneus non inclus (voir onglet Stock).</span>
     </div>
     <div id="buildsheetContent"></div>
+  </div>
+  </div>
+
+  <div class="voiture-sub" id="vsub-drivers">
+  <div class="card">
+    <h3>Pilotes</h3>
+    <div id="driversContent"></div>
   </div>
   </div>
 </section>
@@ -1227,6 +1244,27 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     }
     // Setup marque "actuellement sur la voiture" (reference pour le stock + la buildsheet)
     if(typeof data.currentSetupTaskKey!=='string') data.currentSetupTaskKey = '';
+    // Pilotes (nom, categorie FIA, couleur)
+    if(!Array.isArray(data.drivers)) data.drivers = [];
+    data.drivers.forEach(d=>{
+      if(typeof d.name!=='string') d.name='';
+      if(typeof d.category!=='string') d.category='';
+      if(typeof d.color!=='string' || !d.color) d.color='#888888';
+      if(typeof d.note!=='string') d.note='';
+    });
+    if(!data.driversFromSessionsMig){
+      const existing = new Set(data.drivers.map(d=>(d.name||'').toLowerCase()));
+      let maxId = data.drivers.reduce((m,d)=>Math.max(m,d.id||0),0);
+      const seen = new Set();
+      (data.sessions||[]).forEach(s=>{
+        const n = (s.pilote||'').trim();
+        if(n && !existing.has(n.toLowerCase()) && !seen.has(n.toLowerCase())){
+          seen.add(n.toLowerCase());
+          data.drivers.push({id:++maxId, name:n, category:'', color:'#888888', note:''});
+        }
+      });
+      data.driversFromSessionsMig = true;
+    }
     return data;
   }
 
@@ -3021,11 +3059,57 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       if(which==='parts' && typeof renderPartsTable==='function') renderPartsTable();
       else if(which==='stock' && typeof renderStockTab==='function') renderStockTab();
       else if(which==='buildsheet' && typeof renderBuildsheet==='function') renderBuildsheet();
+      else if(which==='drivers' && typeof renderDriversTab==='function') renderDriversTab();
     }catch(e){}
   }
   document.querySelectorAll('#voitureSubtabs button').forEach(btn=>{
     btn.addEventListener('click', ()=> showVoitureSub(btn.dataset.vsub));
   });
+
+  const DRIVER_CATEGORIES = ['Bronze','Silver','Gold','Platinum'];
+  function driverByName(name){ if(!name) return null; return (STATE.drivers||[]).find(d=>(d.name||'').toLowerCase()===String(name).trim().toLowerCase())||null; }
+  function driverColor(name){ const d=driverByName(name); return d?d.color:null; }
+  // petite pastille coloree + nom (pour tableaux)
+  function driverChip(name){
+    const c = driverColor(name);
+    if(!name) return '';
+    return '<span class="driver-chip">'+(c?'<span class="driver-dot" style="background:'+c+';"></span>':'')+name+'</span>';
+  }
+  function renderDriversTab(){
+    const box = document.getElementById('driversContent');
+    if(!box) return;
+    const esc = (x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    let html = '<p class="small">Definissez vos pilotes : nom, categorie FIA (Bronze/Silver/Gold/Platinum) et couleur. Ils sont proposes partout (nouvelle session, conditions du setup).</p>';
+    html += '<div class="drivers-list">';
+    html += (STATE.drivers||[]).map(d=>
+      '<div class="driver-row" data-id="'+d.id+'">'+
+        '<input type="color" class="driverColor" data-id="'+d.id+'" value="'+esc(d.color||'#888888')+'" title="Couleur">'+
+        '<input type="text" class="driverName" data-id="'+d.id+'" value="'+esc(d.name)+'" placeholder="Nom du pilote">'+
+        '<select class="driverCat" data-id="'+d.id+'"><option value="">(categorie)</option>'+DRIVER_CATEGORIES.map(c=>'<option value="'+c+'" '+(d.category===c?'selected':'')+'>'+c+'</option>').join('')+'</select>'+
+        '<input type="text" class="driverNote" data-id="'+d.id+'" value="'+esc(d.note)+'" placeholder="Note (n° voiture, contact...)">'+
+        '<button class="cal-del driverDel" data-id="'+d.id+'" title="Supprimer">&times;</button>'+
+      '</div>'
+    ).join('') || '<div class="small">Aucun pilote pour le moment.</div>';
+    html += '</div>';
+    html += '<div class="row" style="margin-top:12px;"><div style="flex:1.5;"><label>Nouveau pilote</label><input type="text" id="newDriverName" placeholder="Nom"></div>'+
+      '<div style="align-self:flex-end;"><button class="secondary" id="addDriverBtn">Ajouter</button></div></div>';
+    box.innerHTML = html;
+
+    box.querySelectorAll('.driverColor').forEach(inp=>inp.addEventListener('change', e=>{ const d=STATE.drivers.find(x=>x.id===Number(e.target.dataset.id)); if(d){ d.color=e.target.value; saveState(); } }));
+    box.querySelectorAll('.driverName').forEach(inp=>inp.addEventListener('change', e=>{ const d=STATE.drivers.find(x=>x.id===Number(e.target.dataset.id)); if(d){ d.name=e.target.value.trim(); saveState(); } }));
+    box.querySelectorAll('.driverCat').forEach(sel=>sel.addEventListener('change', e=>{ const d=STATE.drivers.find(x=>x.id===Number(e.target.dataset.id)); if(d){ d.category=e.target.value; saveState(); } }));
+    box.querySelectorAll('.driverNote').forEach(inp=>inp.addEventListener('change', e=>{ const d=STATE.drivers.find(x=>x.id===Number(e.target.dataset.id)); if(d){ d.note=e.target.value; saveState(); } }));
+    box.querySelectorAll('.driverDel').forEach(btn=>btn.addEventListener('click', ()=>{ const id=Number(btn.dataset.id); const d=STATE.drivers.find(x=>x.id===id); if(d && confirm('Supprimer le pilote "'+(d.name||'')+'" ?')){ STATE.drivers=STATE.drivers.filter(x=>x.id!==id); saveState(); } }));
+    const addBtn = box.querySelector('#addDriverBtn');
+    if(addBtn) addBtn.addEventListener('click', ()=>{
+      const name = box.querySelector('#newDriverName').value.trim();
+      if(!name) return;
+      const maxId = (STATE.drivers||[]).reduce((m,d)=>Math.max(m,d.id||0),0);
+      const palette=['#e2231a','#2c7be5','#1f9d55','#f6c343','#8e44ad','#e67e22','#16a2b8','#d63384'];
+      STATE.drivers.push({id:maxId+1, name, category:'', color:palette[(STATE.drivers.length)%palette.length], note:''});
+      saveState();
+    });
+  }
 
   // ---------- HEADER / ALERTS ----------
   function renderHeader(){
@@ -3460,6 +3544,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
   function fillDatalists(){
     const pilotes = new Set();
+    (STATE.drivers||[]).forEach(d=>{ if(d.name) pilotes.add(d.name); });
     STATE.sessions.forEach(s=>{ if(s.pilote) pilotes.add(s.pilote); });
     document.getElementById('dl_pilotes').innerHTML = [...pilotes].map(p=>'<option value="'+p+'">').join('');
   }
@@ -3667,7 +3752,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function renderSessionsTable(){
     document.getElementById('sessionsTableBody').innerHTML = STATE.sessions.map(s=>
       '<tr><td>'+fmtDate(s.date)+'</td><td>'+s.circuit+'</td><td>'+s.tours+'</td><td>'+round3(s.km)+'</td>'+
-      '<td>'+(s.pilote||'')+'</td><td>'+(s.championnat||'')+'</td><td>'+(s.numero||'')+'</td>'+
+      '<td>'+driverChip(s.pilote||'')+'</td><td>'+(s.championnat||'')+'</td><td>'+(s.numero||'')+'</td>'+
       '<td>'+(s.seance||'')+'</td><td>'+(s.run||'')+'</td><td>'+(s.casse?'Oui':'')+'</td><td>'+(s.note||'')+'</td></tr>'
     ).join('');
   }
@@ -4380,12 +4465,14 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(sel && !has) o += '<option value="'+esc(sel)+'" selected>'+sel+'</option>';
     return o;
   }
-  // Liste deroulante des pilotes connus (depuis les sessions)
+  // Liste deroulante des pilotes (onglet Pilotes + pilotes des sessions)
   function setupDriverOptions(sel){
     const esc = (x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
-    const names = Array.from(new Set((STATE.sessions||[]).map(s=>s.pilote).filter(Boolean)));
+    const names = [];
+    (STATE.drivers||[]).forEach(d=>{ if(d.name && names.indexOf(d.name)<0) names.push(d.name); });
+    (STATE.sessions||[]).forEach(s=>{ if(s.pilote && names.indexOf(s.pilote)<0) names.push(s.pilote); });
     let o = '<option value="">(not set)</option>'; let has=false;
-    names.forEach(n=>{ if(String(sel)===String(n)) has=true; o += '<option value="'+esc(n)+'"'+(String(sel)===String(n)?' selected':'')+'>'+n+'</option>'; });
+    names.forEach(n=>{ const d=driverByName(n); const lbl=n+(d&&d.category?' ('+d.category+')':''); if(String(sel)===String(n)) has=true; o += '<option value="'+esc(n)+'"'+(String(sel)===String(n)?' selected':'')+'>'+lbl+'</option>'; });
     if(sel && !has) o += '<option value="'+esc(sel)+'" selected>'+sel+'</option>';
     return o;
   }
