@@ -2791,6 +2791,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       document.querySelectorAll('section.tab').forEach(s=>s.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
+      if(btn.dataset.tab==='todo' && typeof autoSelectTodoContext==='function'){
+        autoSelectTodoContext();
+        renderTodoTab();
+      }
     });
   });
 
@@ -3616,6 +3620,27 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!selectedTodoContext.taskKey) return;
     const found = findTodoTask(selectedTodoContext.taskKey);
     if(found && found.task) activeTodoSession = guessTodoSessionType(found.task.text);
+  }
+  // une session est "passee" une fois sa fin depassee (2h par defaut si pas d'heure de fin)
+  function todoTaskEnded(taskKey){
+    const found = findTodoTask(taskKey);
+    if(!found) return true;
+    const dateStr = found.task.date || found.ev.date;
+    if(!dateStr) return false;
+    const start = new Date(dateStr+'T'+(found.task.startTime||'00:00')+':00');
+    const end = found.task.endTime ? new Date(dateStr+'T'+found.task.endTime+':00') : new Date(start.getTime()+2*3600000);
+    return new Date() > end;
+  }
+  // a l'ouverture du To Do : se positionne tout seul sur la prochaine session officielle a venir
+  // (garde la selection en cours tant qu'elle n'est pas passee, pour ne pas gener un travail en cours)
+  function autoSelectTodoContext(){
+    if(selectedTodoContext.taskKey && !todoTaskEnded(selectedTodoContext.taskKey)) return;
+    const next = findNextOfficialSessionDT();
+    if(next){
+      selectedTodoContext.eventId = String(next.ev.id);
+      selectedTodoContext.taskKey = next.ev.id+'::'+next.t.id;
+      activeTodoSession = guessTodoSessionType(next.t.text);
+    }
   }
   // renvoie (et cree si besoin) la liste de taches types pour un role + type de seance
   function getTodoTemplateList(role, sess){
