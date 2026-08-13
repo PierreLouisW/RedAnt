@@ -218,13 +218,14 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-run-header{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;margin-bottom:8px;}
 .rs-run-badge{background:var(--accent);color:#fff;font-size:12px;font-weight:700;padding:4px 12px;border-radius:6px;white-space:nowrap;}
 .rs-run-header input{flex:1;margin:0;font-size:14px;}
-.rs-cond-block{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:8px;margin-bottom:12px;}
+.rs-cond-block{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) 2.2fr;gap:8px;margin-bottom:12px;}
+@media(max-width:900px){.rs-cond-block{grid-template-columns:1fr 1fr;}}
 .rs-cb-col h6{margin:0 0 6px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--accent);}
 .rs-cb-col .rs-field{margin-bottom:4px;}
 .rs-cb-col .rs-field label{margin-top:0;margin-bottom:2px;}
 .rs-cb-trackmap{display:flex;flex-direction:column;}
-.rs-trackmap-img{max-width:100%;max-height:150px;border-radius:6px;object-fit:contain;align-self:center;}
-.rs-trackmap-drop{display:flex;align-items:center;justify-content:center;text-align:center;flex:1;min-height:100px;border:1px dashed var(--border);border-radius:6px;color:var(--muted);font-size:11px;cursor:pointer;padding:8px;margin-top:0;}
+.rs-trackmap-img{max-width:100%;max-height:280px;border-radius:6px;object-fit:contain;align-self:center;}
+.rs-trackmap-drop{display:flex;align-items:center;justify-content:center;text-align:center;flex:1;min-height:180px;border:1px dashed var(--border);border-radius:6px;color:var(--muted);font-size:11px;cursor:pointer;padding:8px;margin-top:0;}
 .rs-bottom{display:grid;grid-template-columns:1fr 1fr 1.5fr;gap:12px;margin-top:16px;align-items:stretch;}
 .rs-bottom .rs-box{display:flex;flex-direction:column;}
 .rs-bottom textarea{flex:1;min-height:150px;font-size:12px;resize:vertical;}
@@ -3721,7 +3722,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
   function runTyreSetCodes(){ const ev=runEventObj(); const all=Object.keys(groupSetsByCode('tyre')).sort(); return (ev && ev.tyreSets && ev.tyreSets.length) ? ev.tyreSets.map(t=>t.code).filter(c=>all.indexOf(c)>=0) : all; }
   // Cell capacity (fuel max) du setup associe a la feuille de run
-  function runSetupCellCapacity(r){ if(!r||!r.setupId) return null; const snap=(STATE.setupSnapshots||[]).find(s=>String(s.id)===String(r.setupId)); if(!snap||!snap.shared) return null; const v=parseFloat(String(snap.shared.cellCapacity||'').replace(',','.')); return isNaN(v)?null:v; }
+  function runSetupCellCapacity(r){ if(!r||!r.setupId) return null; const snap=(STATE.setupSnapshots||[]).find(s=>String(s.id)===String(r.setupId)); if(!snap) return null; let raw=(snap.shared&&snap.shared.cellCapacity!=null)?snap.shared.cellCapacity:''; // valeur live du setup liee (si l'entree existe) prioritaire, pour refleter les changements en direct
+    if(snap.taskKey && STATE.setupData && STATE.setupData[snap.taskKey]){ const e=STATE.setupData[snap.taskKey]; if(e.shared && e.shared.cellCapacity!=null && String(e.shared.cellCapacity).trim()!=='') raw=e.shared.cellCapacity; }
+    const v=parseFloat(String(raw||'').replace(',','.')); return isNaN(v)?null:v; }
   // Pression cible (tyrePressure) d'un coin depuis le setup associe au relais (corner FL/FR/RL/RR -> fl/fr/rl/rr)
   function stintSetupTarget(st, corner){ if(!st||!st.setupId) return null; const snap=(STATE.setupSnapshots||[]).find(s=>String(s.id)===String(st.setupId)); if(!snap||!snap.corners) return null; const c=snap.corners[String(corner).toLowerCase()]; if(!c) return null; const v=parseFloat(String(c.tyrePressure||'').replace(',','.')); return isNaN(v)?null:v; }
   // Compound d'un train de pneus (S/W) depuis le stock
