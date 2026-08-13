@@ -1100,6 +1100,16 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       });
       data.mecanoSetupTaskMig = true;
     }
+    // migration ponctuelle : "Racelogic Setup" est une tache Ingenieur, retiree du cote Mecano
+    if(!data.mecanoRacelogicSetupRemoved){
+      ['essais','qualif','course'].forEach(k=>{
+        const list = data.todoTemplates.mecano[k];
+        if(Array.isArray(list)){
+          data.todoTemplates.mecano[k] = list.filter(t=>(t.text||'').toLowerCase()!=='racelogic setup');
+        }
+      });
+      data.mecanoRacelogicSetupRemoved = true;
+    }
     if(!data.setupData || typeof data.setupData!=='object') data.setupData = {};
     if(!Array.isArray(data.setupSnapshots)) data.setupSnapshots = [];
     if(typeof data.setupPassword!=='string') data.setupPassword = '';
@@ -3700,7 +3710,6 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         {text:'Sensors Zero', link:null},
         {text:'Doors Closing Check', link:null},
         {text:'Drink System', link:null},
-        {text:'Racelogic Setup', link:null},
         {text:'Radio Check', link:null},
         {text:'Onboard Cam Check', link:null},
         {text:'Start Engine/Gears Check', link:null}
