@@ -222,6 +222,9 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-press-table{width:100%;border-collapse:collapse;font-size:11px;}
 .rs-press-table th,.rs-press-table td{padding:3px 5px;border:1px solid var(--border);text-align:center;}
 .rs-press-table input{width:54px;padding:2px 3px;font-size:11px;text-align:center;}
+.rs-press-table tr.rs-ref-line td{background:rgba(255,255,255,0.03);color:var(--muted);}
+.rs-press-table tr.rs-ref-line td:first-child,.rs-press-table tbody td:first-child{text-align:left;color:var(--muted);}
+.rs-press-table tr.rs-temp-head td{background:var(--panel);color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.3px;text-align:left;}
 .rs-laps-wrap{overflow-x:auto;margin-top:14px;border:1px solid var(--border);border-radius:8px;}
 .rs-laps{width:100%;border-collapse:collapse;font-size:12px;min-width:820px;}
 .rs-laps th{background:var(--panel);color:var(--muted);font-size:10px;text-transform:uppercase;padding:5px 6px;position:sticky;top:0;}
@@ -3299,6 +3302,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function normStint(s){
     if(!s.cond) s.cond={}; if(!s.fuel) s.fuel={};
     if(!s.press) s.press={cold:{},hot:{}}; if(!s.press.cold) s.press.cold={}; if(!s.press.hot) s.press.hot={};
+    if(!s.tyreTemps || typeof s.tyreTemps!=='object') s.tyreTemps={};
+    if(!s.discTemps || typeof s.discTemps!=='object') s.discTemps={};
     if(!Array.isArray(s.laps)) s.laps=[];
     ['name','driver','setupId','tyreSet','driverComments','engineerComments','startTime'].forEach(k=>{ if(typeof s[k]!=='string') s[k]=''; });
     return s;
@@ -3425,10 +3430,25 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const cellCap = runSetupCellCapacity(st);
     const fuelField=(f)=>{ const isStart=f.key==='startFuel'; const lbl=f.label+(isStart&&cellCap!=null?' (max '+cellCap+')':''); return '<div class="rs-field"><label>'+lbl+'</label><input type="text" class="rsFuelInput" data-key="'+f.key+'" value="'+esc(st.fuel[f.key])+'"></div>'; };
     const pressRow=(kind)=> RS_CORNERS.map(c=>'<td><input type="text" class="rsPressInput" data-kind="'+kind+'" data-corner="'+c+'" value="'+esc(st.press[kind][c])+'"></td>').join('');
+    const tget=(c,pt)=>{ const o=st.tyreTemps[c]||{}; return o[pt]||''; };
+    const targetRow = RS_CORNERS.map(c=>{ const t=stintSetupTarget(st,c); return '<td class="rs-target-cell">'+(t!=null?t.toFixed(2):'-')+'</td>'; }).join('');
+    const bleedRow = RS_CORNERS.map(c=>{ const h=parseFloat(String(st.press.hot[c]||'').replace(',','.')); const t=stintSetupTarget(st,c); const b=(!isNaN(h)&&t!=null)?(h-t):null; return '<td class="rs-bleed-cell" data-corner="'+c+'">'+(b!=null?b.toFixed(2):'-')+'</td>'; }).join('');
+    const tempRow=(pt)=> RS_CORNERS.map(c=>'<td><input type="text" class="rsTyreTemp" data-corner="'+c+'" data-pt="'+pt+'" value="'+esc(tget(c,pt))+'"></td>').join('');
+    const discRow = RS_CORNERS.map(c=>'<td><input type="text" class="rsDiscTemp" data-corner="'+c+'" value="'+esc(st.discTemps[c]||'')+'"></td>').join('');
     let rightBox = '<div class="rs-box"><h5>Carburant</h5><div class="rs-cond-grid" style="grid-template-columns:repeat(2,1fr);">'+RS_FUEL.map(fuelField).join('')+'</div>'+
-      '<h5 style="margin-top:12px;">Pressions pneus (bar)</h5>'+
+      '<h5 style="margin-top:12px;">Pressions / températures</h5>'+
       '<table class="rs-press-table"><thead><tr><th></th>'+RS_CORNERS.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+
-      '<tr><td>Cold</td>'+pressRow('cold')+'</tr><tr><td>Hot</td>'+pressRow('hot')+'</tr></tbody></table></div>';
+      '<tr><td>Cold (bar)</td>'+pressRow('cold')+'</tr>'+
+      '<tr><td>Hot (bar)</td>'+pressRow('hot')+'</tr>'+
+      '<tr class="rs-ref-line"><td>Target</td>'+targetRow+'</tr>'+
+      '<tr class="rs-ref-line"><td>Bleed</td>'+bleedRow+'</tr>'+
+      '<tr class="rs-temp-head"><td colspan="5">Températures pneu (°C) — Int / Mil / Ext</td></tr>'+
+      '<tr><td>Int</td>'+tempRow('i')+'</tr>'+
+      '<tr><td>Mil</td>'+tempRow('m')+'</tr>'+
+      '<tr><td>Ext</td>'+tempRow('o')+'</tr>'+
+      '<tr class="rs-temp-head"><td colspan="5">Disques de frein (°C)</td></tr>'+
+      '<tr><td>Disque</td>'+discRow+'</tr>'+
+      '</tbody></table></div>';
 
     // Laps table (corps rempli par renderLapsBody) — bouton d'ajout AU-DESSUS pour ne pas bouger
     let lapsTable = '<div class="row" style="margin-bottom:8px;align-items:center;"><button class="secondary" id="rsAddLapBtn">+ Ajouter un tour</button><div id="rsSummary" class="rs-summary"></div></div>'+
@@ -3464,7 +3484,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const save=()=>saveState();
     box.querySelectorAll('.rsCondInput').forEach(el=>el.addEventListener('change', e=>{ getStint(taskKey).cond[e.target.dataset.key]=e.target.value; save(); }));
     box.querySelectorAll('.rsFuelInput').forEach(el=>el.addEventListener('change', e=>{ const s2=getStint(taskKey); if(e.target.dataset.key==='startFuel'){ const cap=runSetupCellCapacity(s2); let v=parseFloat(String(e.target.value).replace(',','.')); if(cap!=null && !isNaN(v) && v>cap){ v=cap; e.target.value=String(cap); alert('Start fuel limite a la cell capacity du setup associe ('+cap+' L).'); } } s2.fuel[e.target.dataset.key]=e.target.value; save(); renderLapsBody(taskKey); }));
-    box.querySelectorAll('.rsPressInput').forEach(el=>el.addEventListener('change', e=>{ getStint(taskKey).press[e.target.dataset.kind][e.target.dataset.corner]=e.target.value; save(); }));
+    box.querySelectorAll('.rsPressInput').forEach(el=>el.addEventListener('change', e=>{ const s2=getStint(taskKey); s2.press[e.target.dataset.kind][e.target.dataset.corner]=e.target.value; save(); if(e.target.dataset.kind==='hot'){ const c=e.target.dataset.corner; const cell=box.querySelector('.rs-bleed-cell[data-corner="'+c+'"]'); if(cell){ const h=parseFloat(String(e.target.value).replace(',','.')); const t=stintSetupTarget(s2,c); cell.textContent=(!isNaN(h)&&t!=null)?(h-t).toFixed(2):'-'; } } }));
+    box.querySelectorAll('.rsTyreTemp').forEach(el=>el.addEventListener('change', e=>{ const s2=getStint(taskKey); const c=e.target.dataset.corner; s2.tyreTemps[c]=s2.tyreTemps[c]||{}; s2.tyreTemps[c][e.target.dataset.pt]=e.target.value; save(); }));
+    box.querySelectorAll('.rsDiscTemp').forEach(el=>el.addEventListener('change', e=>{ getStint(taskKey).discTemps[e.target.dataset.corner]=e.target.value; save(); }));
     box.querySelectorAll('.rsMetaInput').forEach(el=>el.addEventListener('change', e=>{ getStint(taskKey)[e.target.dataset.key]=e.target.value; save(); if(['name','setupId','driver','tyreSet','startTime'].indexOf(e.target.dataset.key)>=0) renderRunsheetTab(); }));
     box.querySelectorAll('.rsCommentInput').forEach(el=>el.addEventListener('change', e=>{ getStint(taskKey)[e.target.dataset.key]=e.target.value; save(); }));
     renderLapsBody(taskKey);
@@ -3674,6 +3696,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function runTyreSetCodes(){ const ev=runEventObj(); const all=Object.keys(groupSetsByCode('tyre')).sort(); return (ev && ev.tyreSets && ev.tyreSets.length) ? ev.tyreSets.map(t=>t.code).filter(c=>all.indexOf(c)>=0) : all; }
   // Cell capacity (fuel max) du setup associe a la feuille de run
   function runSetupCellCapacity(r){ if(!r||!r.setupId) return null; const snap=(STATE.setupSnapshots||[]).find(s=>String(s.id)===String(r.setupId)); if(!snap||!snap.shared) return null; const v=parseFloat(String(snap.shared.cellCapacity||'').replace(',','.')); return isNaN(v)?null:v; }
+  // Pression cible (tyrePressure) d'un coin depuis le setup associe au relais (corner FL/FR/RL/RR -> fl/fr/rl/rr)
+  function stintSetupTarget(st, corner){ if(!st||!st.setupId) return null; const snap=(STATE.setupSnapshots||[]).find(s=>String(s.id)===String(st.setupId)); if(!snap||!snap.corners) return null; const c=snap.corners[String(corner).toLowerCase()]; if(!c) return null; const v=parseFloat(String(c.tyrePressure||'').replace(',','.')); return isNaN(v)?null:v; }
   // Compound d'un train de pneus (S/W) depuis le stock
   function tyreSetCompound(code){ const g=groupSetsByCode('tyre')[code]; if(!g) return ''; const items=TYRE_POSITIONS.map(p=>g[p]).filter(Boolean); return (items[0]&&items[0].extra&&items[0].extra.compound)||''; }
   // Kilometrage (mileage stock) d'un pneu du train a une position donnee
