@@ -1288,6 +1288,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       data.setupWeatherEnMig = true;
     }
     if(!Array.isArray(data.setupSnapshots)) data.setupSnapshots = [];
+    data.setupSnapshots.forEach(s=>{ if(typeof s.name!=='string') s.name=''; });
     if(typeof data.setupPassword!=='string') data.setupPassword = '';
     // Mot de passe Setup retire (acces gere plus tard par utilisateur) : on efface l'existant une fois
     if(!data.setupPasswordCleared){ data.setupPassword = ''; data.setupPasswordCleared = true; }
@@ -3282,7 +3283,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
     // options setup snapshots + tyre sets
     const snapOpts = '<option value="">(aucun)</option>'+(STATE.setupSnapshots||[]).slice().sort((a,b)=>(b.savedAt||0)-(a.savedAt||0)).map(s=>{
-      const found=findTodoTask(s.taskKey); const lbl='['+(s.phase==='setdown'?'Setdown':'Setup')+'] '+(found?fmtDate(found.task.date)+' '+found.task.text:'')+' #'+s.id;
+      const found=findTodoTask(s.taskKey); const lbl='['+(s.phase==='setdown'?'Setdown':'Setup')+'] '+(s.name?s.name+' - ':'')+(found?fmtDate(found.task.date)+' '+found.task.text:'')+' #'+s.id;
       return '<option value="'+s.id+'" '+(String(r.setupId)===String(s.id)?'selected':'')+'>'+lbl+'</option>';
     }).join('');
     const rimCodes = runTyreSetCodes();
@@ -5173,9 +5174,15 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!taskKey){ alert('Choisissez une session/seance avant d\'enregistrer.'); return; }
     if(!Array.isArray(STATE.setupSnapshots)) STATE.setupSnapshots = [];
     const entry = getSetupEntry(taskKey);
+    const nbSame = STATE.setupSnapshots.filter(s=>s.taskKey===taskKey).length;
+    const defName = ((entry.phase==='setdown')?'Setdown':'Setup')+' '+(nbSame+1);
+    let name = prompt('Nom du setup (pour le distinguer des autres de la meme session) :', defName);
+    if(name===null) return; // annule
+    name = (name||'').trim() || defName;
     const snap = {
       id: (STATE.setupSnapshots.reduce((m,s)=>Math.max(m,s.id||0),0))+1,
       savedAt: Date.now(),
+      name: name,
       eventId: String(taskKey).split('::')[0],
       taskKey: taskKey,
       phase: entry.phase||'setup',
@@ -5191,6 +5198,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
 
   function renderSetupHistoryView(container){
+    const esc = (x)=>(x==null?'':String(x)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     const snaps = Array.isArray(STATE.setupSnapshots) ? STATE.setupSnapshots : [];
     const items = snaps.map(s=>{
       const found = findTodoTask(s.taskKey);
@@ -5228,7 +5236,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     html += '<div class="setup-hist-scroll"><table class="setup-history-table setup-hist-cols"><thead><tr><th>Parametre</th>'+
       cols.map(c=>{
         const phase = c.i.snap.phase==='setdown' ? '<span class="pill" style="background:#8a5a2c;color:#fff;">Setdown</span>' : '<span class="pill" style="background:#2c5f8a;color:#fff;">Setup</span>';
-        return '<th>'+phase+'<div>'+fmtDate(c.i.taskDate)+'</div><div class="small">'+c.i.circuit+' - '+(c.i.taskText||'')+'</div>'+
+        const nm = c.i.snap.name ? '<div style="font-weight:700;margin:2px 0;">'+esc(c.i.snap.name)+'</div>' : '';
+        return '<th>'+phase+nm+'<div>'+fmtDate(c.i.taskDate)+'</div><div class="small">'+c.i.circuit+' - '+(c.i.taskText||'')+'</div>'+
+          '<button class="secondary setupHistRenameBtn" data-id="'+c.i.snap.id+'" style="margin-top:4px;padding:3px 8px;font-size:11px;">Renommer</button> '+
           '<button class="secondary setupHistOpenBtn" data-id="'+c.i.snap.id+'" style="margin-top:4px;padding:3px 8px;font-size:11px;">Ouvrir</button> '+
           '<button class="danger setupHistDelBtn" data-id="'+c.i.snap.id+'" style="padding:3px 8px;font-size:11px;">Suppr</button></th>';
       }).join('')+
@@ -5266,6 +5276,16 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         saveState();
       });
     });
+    container.querySelectorAll('.setupHistRenameBtn').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const snap = STATE.setupSnapshots.find(s=>String(s.id)===String(btn.dataset.id));
+        if(!snap) return;
+        const nn = prompt('Nom du setup :', snap.name||'');
+        if(nn===null) return;
+        snap.name = nn.trim();
+        saveState();
+      });
+    });
     container.querySelectorAll('.setupHistDelBtn').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         if(!confirm('Supprimer ce setup enregistre de l\'historique ?')) return;
@@ -5282,7 +5302,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const circ = found ? (circuitGuessFromLocation(found.ev.location)||found.ev.label) : '-';
       const dt = found ? fmtDate(found.task.date) : '';
       const ph = s.phase==='setdown' ? 'Setdown' : 'Setup';
-      return {id:String(s.id), label: '['+ph+'] '+dt+' - '+circ+(found?' - '+found.task.text:'')};
+      return {id:String(s.id), label: '['+ph+'] '+(s.name?s.name+' - ':'')+dt+' - '+circ+(found?' - '+found.task.text:'')};
     }).sort((a,b)=> a.label<b.label?-1:1);
 
     let html = '<div class="row">'+
@@ -5688,9 +5708,15 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     SETUP_SHARED_FIELDS.forEach(f=>{ shared[f.key] = pick(entry.readings.shared[f.key], entry.shared[f.key]); });
     const weights = {};
     SETUP_WEIGHTS_FIELDS.forEach(f=>{ weights[f.key] = pick(entry.readings.weights[f.key], entry.weights[f.key]); });
+    const nbSame = STATE.setupSnapshots.filter(s=>s.taskKey===taskKey).length;
+    const defName = 'Setdown '+(nbSame+1);
+    let name = prompt('Nom du setdown (pour le distinguer des autres de la meme session) :', defName);
+    if(name===null) return; // annule
+    name = (name||'').trim() || defName;
     const snap = {
       id: (STATE.setupSnapshots.reduce((m,s)=>Math.max(m,s.id||0),0))+1,
       savedAt: Date.now(),
+      name: name,
       eventId: String(taskKey).split('::')[0],
       taskKey: taskKey,
       phase: 'setdown',
