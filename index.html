@@ -68,6 +68,15 @@ a.dl{color:var(--accent);}
 .historique-sub.active{display:block;}
 .voiture-sub{display:none;}
 .voiture-sub.active{display:block;}
+.run-sub{display:none;}
+.run-sub.active{display:block;}
+.rs-assign-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:6px;}
+@media (max-width:760px){.rs-assign-grid{grid-template-columns:1fr;}}
+.rs-assign-box{border:1px solid var(--border);border-radius:8px;background:var(--panel2);padding:10px 12px;}
+.rs-assign-box h5{margin:0 0 8px;font-size:12px;color:var(--accent);text-transform:uppercase;letter-spacing:.4px;}
+.rs-check-row{display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:13px;border-top:1px solid var(--border);}
+.rs-check-row:first-of-type{border-top:none;}
+.rs-check-row input[type="checkbox"]{width:auto;flex:0 0 auto;}
 .status-pill{display:inline-block;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;color:#fff;}
 .status-pill.jetee{background:#6b6b6b;}
 .status-pill.atelier{background:#2c5f8a;}
@@ -916,11 +925,20 @@ body.auth-locked #authGate{ display:flex; }
 <!-- TAB: RUN SHEET -->
 <section class="tab" id="tab-runsheet">
   <div class="card">
-    <div class="measure-context-row">
-      <label>Evenement <select id="runEventSelect"></select></label>
-      <label>Session / seance <select id="runTaskSelect"></select></label>
+    <div class="subtabs" id="runSubtabs">
+      <button data-rsub="accueil" class="active">Accueil (event)</button>
+      <button data-rsub="run">Feuille de run</button>
     </div>
-    <div id="runsheetContent"></div>
+    <div class="run-sub active" id="rsub-accueil">
+      <div id="runAccueilContent" style="margin-top:12px;"></div>
+    </div>
+    <div class="run-sub" id="rsub-run">
+      <div class="measure-context-row" style="margin-top:12px;">
+        <label>Evenement <select id="runEventSelect"></select></label>
+        <label>Session / seance <select id="runTaskSelect"></select></label>
+      </div>
+      <div id="runsheetContent"></div>
+    </div>
   </div>
 </section>
 
@@ -1118,6 +1136,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     data.mlmcEvents.forEach(ev=>{
       if(!Array.isArray(ev.tasks)) ev.tasks = [];
       if(typeof ev.country!=='string') ev.country = '';
+      if(!Array.isArray(ev.tyreSets)) ev.tyreSets = [];
+      if(!Array.isArray(ev.drivers)) ev.drivers = [];
       ev.tasks.forEach(t=>{
         if(typeof t.date!=='string' || !t.date) t.date = ev.date;
         if(typeof t.startTime!=='string') t.startTime = '';
@@ -3051,9 +3071,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         autoSelectSetupContext();
         renderSetupTabPage();
       }
-      if(btn.dataset.tab==='runsheet' && typeof autoSelectRunContext==='function'){
-        autoSelectRunContext();
-        renderRunsheetTab();
+      if(btn.dataset.tab==='runsheet' && typeof showRunSub==='function'){
+        const active=document.querySelector('#runSubtabs button.active');
+        showRunSub(active?active.dataset.rsub:'accueil');
       }
     });
   });
@@ -3222,8 +3242,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const found=findTodoTask(s.taskKey); const lbl='['+(s.phase==='setdown'?'Setdown':'Setup')+'] '+(found?fmtDate(found.task.date)+' '+found.task.text:'')+' #'+s.id;
       return '<option value="'+s.id+'" '+(String(r.setupId)===String(s.id)?'selected':'')+'>'+lbl+'</option>';
     }).join('');
-    const rimCodes = Object.keys(groupSetsByCode('rim')).sort();
-    const tyreOpts = '<option value="">(aucun)</option>'+rimCodes.map(c=>'<option value="'+esc(c)+'" '+(r.tyreSet===c?'selected':'')+'>'+c+'</option>').join('');
+    const rimCodes = runTyreSetCodes();
+    const tyreOpts = '<option value="">(aucun)</option>'+rimCodes.map(c=>'<option value="'+esc(c)+'" '+(r.tyreSet===c?'selected':'')+'>'+c+'</option>').join('')+((r.tyreSet && rimCodes.indexOf(r.tyreSet)<0)?'<option value="'+esc(r.tyreSet)+'" selected>'+r.tyreSet+'</option>':'');
 
     // Conditions box
     const condField = (f)=>{
@@ -3233,7 +3253,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       return '<div class="rs-field"><label>'+f.label+'</label>'+ctl+'</div>';
     };
     let condBox = '<div class="rs-box"><h5>Conditions du run</h5><div class="rs-cond-grid">'+
-      '<div class="rs-field"><label>Pilote</label><select class="rsMetaInput" data-key="driver">'+setupDriverOptions(r.driver)+'</select></div>'+
+      '<div class="rs-field"><label>Pilote</label><select class="rsMetaInput" data-key="driver">'+runDriverOptions(r.driver)+'</select></div>'+
       RS_COND.map(condField).join('')+
       '</div>'+
       '<div class="rs-cond-grid" style="margin-top:8px;">'+
@@ -3313,6 +3333,46 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(taskSel) taskSel.addEventListener('change', e=>{ selectedRunContext.taskKey=e.target.value; renderRunsheetTab(); });
   }
   wireRunStaticEvents();
+  // pilotes/pneus disponibles pour l'event (sinon tous)
+  function runEventObj(){ return (STATE.mlmcEvents||[]).find(e=>String(e.id)===String(selectedRunContext.eventId)) || null; }
+  function runTyreSetCodes(){ const ev=runEventObj(); const all=Object.keys(groupSetsByCode('rim')).sort(); return (ev && ev.tyreSets && ev.tyreSets.length) ? ev.tyreSets.filter(c=>all.indexOf(c)>=0) : all; }
+  function runDriverOptions(sel){
+    const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const ev=runEventObj();
+    const list=(ev && ev.drivers && ev.drivers.length) ? ev.drivers.slice() : (STATE.drivers||[]).map(d=>d.name);
+    let o='<option value="">(not set)</option>'; let has=false;
+    list.forEach(n=>{ const d=driverByName(n); const lbl=n+(d&&d.category?' ('+d.category+')':''); if(String(sel)===String(n)) has=true; o+='<option value="'+esc(n)+'"'+(String(sel)===String(n)?' selected':'')+'>'+lbl+'</option>'; });
+    if(sel && !has) o+='<option value="'+esc(sel)+'" selected>'+sel+'</option>';
+    return o;
+  }
+  function toggleInArray(arr, val, on){ const i=arr.indexOf(val); if(on && i<0) arr.push(val); else if(!on && i>=0) arr.splice(i,1); }
+  function renderRunAccueil(){
+    const box=document.getElementById('runAccueilContent'); if(!box) return;
+    const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    if(!selectedRunContext.eventId){ const next=findNextOfficialSessionDT(); if(next) selectedRunContext.eventId=String(next.ev.id); }
+    let html='<div class="measure-context-row"><label>Evenement <select id="runAccueilEventSelect">'+eventSelectOptions(selectedRunContext.eventId)+'</select></label></div>';
+    const ev=runEventObj();
+    if(!ev){ box.innerHTML=html+'<div class="small">Choisissez un evenement.</div>'; const s=document.getElementById('runAccueilEventSelect'); if(s) s.addEventListener('change',e=>{ selectedRunContext.eventId=e.target.value; selectedRunContext.taskKey=''; renderRunAccueil(); }); return; }
+    const rimCodes=Object.keys(groupSetsByCode('rim')).sort();
+    html+='<p class="small">Cochez les <b>trains de pneus</b> et les <b>pilotes</b> qui participent a cet evenement. Seuls ces choix apparaitront ensuite dans les feuilles de run de l\'event (moins de choix).</p>';
+    html+='<div class="rs-assign-grid">';
+    html+='<div class="rs-assign-box"><h5>Trains de pneus</h5>'+(rimCodes.length?rimCodes.map(c=>'<label class="rs-check-row"><input type="checkbox" class="rsEvtTyre" value="'+esc(c)+'" '+(ev.tyreSets.indexOf(c)>=0?'checked':'')+'> '+c+'</label>').join(''):'<div class="small">Aucun train de jantes en stock.</div>')+'</div>';
+    html+='<div class="rs-assign-box"><h5>Pilotes de l\'event</h5>'+((STATE.drivers||[]).length?STATE.drivers.map(d=>'<label class="rs-check-row"><input type="checkbox" class="rsEvtDriver" value="'+esc(d.name)+'" '+(ev.drivers.indexOf(d.name)>=0?'checked':'')+'> <span class="driver-dot" style="background:'+(d.color||'#888')+';"></span> '+d.name+(d.category?' ('+d.category+')':'')+'</label>').join(''):'<div class="small">Aucun pilote (onglet Voiture &gt; Pilotes).</div>')+'</div>';
+    html+='</div>';
+    box.innerHTML=html;
+    const evSel=document.getElementById('runAccueilEventSelect');
+    if(evSel) evSel.addEventListener('change', e=>{ selectedRunContext.eventId=e.target.value; selectedRunContext.taskKey=''; renderRunAccueil(); });
+    box.querySelectorAll('.rsEvtTyre').forEach(cb=>cb.addEventListener('change', e=>{ toggleInArray(ev.tyreSets, e.target.value, e.target.checked); saveState(); }));
+    box.querySelectorAll('.rsEvtDriver').forEach(cb=>cb.addEventListener('change', e=>{ toggleInArray(ev.drivers, e.target.value, e.target.checked); saveState(); }));
+  }
+  function showRunSub(which){
+    document.querySelectorAll('#runSubtabs button').forEach(b=>b.classList.toggle('active', b.dataset.rsub===which));
+    document.querySelectorAll('.run-sub').forEach(s=>s.classList.remove('active'));
+    const p=document.getElementById('rsub-'+which); if(p) p.classList.add('active');
+    if(which==='accueil') renderRunAccueil();
+    else { autoSelectRunContext(); renderRunsheetTab(); }
+  }
+  document.querySelectorAll('#runSubtabs button').forEach(btn=>btn.addEventListener('click', ()=>showRunSub(btn.dataset.rsub)));
 
   // ---------- HEADER / ALERTS ----------
   function renderHeader(){
