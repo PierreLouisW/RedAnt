@@ -4090,7 +4090,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
   // Groupes de disposition (box Avant / Arriere)
   const SETUP_FRONT_AXLE = ['arbDiameterFront','arbBladeFront','brakeSetFront','plankFront','divePlane'];
-  const SETUP_REAR_AXLE = ['arbDiameterRear','arbBladeRear','brakeSetRear','plankRear','wingAngle','gurney','diffPreload'];
+  const SETUP_REAR_AXLE = ['arbDiameterRear','arbBladeRear','brakeSetRear','plankRear','wingAngle','gurney'];
   const SETUP_THIRD_FRONT = ['thirdFrontSpring','thirdFrontPreload','thirdFrontSprGap','thirdFrontPacGap','thirdFrontBump'];
   const SETUP_THIRD_REAR = ['thirdRearSpring','thirdRearPreload','thirdRearSprGap','thirdRearPacGap','thirdRearBump'];
   // Champs "Voiture / Divers" (stockes avec les champs partages)
@@ -4107,7 +4107,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {key:'waterBlankingBottom', label:'Water blanking bottom'},
     {key:'brakeMcylFront', label:'Brake MCyl Front'},
     {key:'brakeMcylRear', label:'Brake MCyl Rear'},
-    {key:'brakeBlanking', label:'Brake blanking'},
+    {key:'brakeBlankingFront', label:'Brake blanking Front'},
+    {key:'brakeBlankingRear', label:'Brake blanking Rear'},
     {key:'brakeBias', label:'Brake bias'},
     {key:'tractionControl', label:'Traction control'},
     {key:'splitterHeight', label:'Splitter height', unit:'mm'},
@@ -4119,19 +4120,24 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   ];
   SETUP_MISC_FIELDS.forEach(f=>{ SETUP_SHARED_FIELDS.push(f); });
   const SETUP_MISC_GROUPS = [
-    {title:'Fuel', keys:['cellCapacity']},
+    {title:'Ride height', keys:['rake']},
     {title:'Suspension kinematics', keys:['suspKinFront','suspKinRear']},
-    {title:'Differential / Transmission', keys:['rampsPower','rampsCoast','noFacesSides','gearboxBlanking','clutchCylinder']},
+    {title:'Differential / Transmission', keys:['diffPreload','rampsPower','rampsCoast','noFacesSides','gearboxBlanking','clutchCylinder']},
     {title:'Cooling', keys:['waterBlankingTop','waterBlankingBottom']},
-    {title:'Brakes', keys:['brakeMcylFront','brakeMcylRear','brakeBlanking','brakeBias']},
-    {title:'Electronics', keys:['tractionControl']},
-    {title:'Aero', keys:['splitterHeight','diffusorHeight','diffusorWidth']},
-    {title:'Ballast', keys:['ballastNose','ballastCockpit','ballastGearbox']}
+    {title:'Brakes', keys:['brakeMcylFront','brakeMcylRear','brakeBlankingFront','brakeBlankingRear']},
+    {title:'Electronics', keys:['tractionControl','brakeBias']},
+    {title:'Aero', keys:['splitterHeight','diffusorHeight','diffusorWidth']}
   ];
+  // Box Homologation (cell capacity + balances) et box Weight (calcules + ballast)
+  const SETUP_HOMOLOG_KEYS = ['cellCapacity','elRollBalance','aeroBalance','totAeroLoad'];
+  const SETUP_WEIGHT_TOP = ['totWeight','stWdCrossWeight'];
+  const SETUP_BALLAST_KEYS = ['ballastNose','ballastCockpit','ballastGearbox'];
   const SHARED_FIELD_BY_KEY = {};
   SETUP_SHARED_FIELDS.forEach(f=>{ SHARED_FIELD_BY_KEY[f.key]=f; });
   const FIELD_BY_KEY = {};
   SETUP_FIELDS.forEach(f=>{ FIELD_BY_KEY[f.key]=f; });
+  const WEIGHT_BY_KEY = {};
+  SETUP_WEIGHTS_FIELDS.forEach(f=>{ WEIGHT_BY_KEY[f.key]=f; });
   // ---- Conversion RH chassis <-> RH measurement (interpolation lineaire sur la table d'equivalence) ----
   function rhPoints(axle){
     const t = STATE.rhConversion && STATE.rhConversion[axle];
@@ -4427,6 +4433,19 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const lab = strip ? f.label.replace(/^3rd Elem\. (Front|Rear) - /,'') : (f.label+(f.unit?' ['+f.unit+']':''));
       return {label:lab, control:sharedControl(key)};
     });
+    // Controle generique selon la categorie de la cle (calcule / poids / partage)
+    const genLabel = (key, strip)=>{
+      if(WEIGHT_BY_KEY[key]) return WEIGHT_BY_KEY[key].label;
+      const f=SHARED_FIELD_BY_KEY[key]; if(!f) return key;
+      const l = strip ? f.label.replace(/^3rd Elem\. (Front|Rear) - /,'') : f.label;
+      return l+(f.unit?' ['+f.unit+']':'');
+    };
+    const genControl = (key)=>{
+      if(SETUP_COMPUTED_WEIGHTS.indexOf(key)>=0){ const v=cval(entry.weights[key]); return '<span class="setup-computed" data-field="'+key+'" style="flex:1;">'+((v==null||v==='')?'-':v)+'</span>'; }
+      if(WEIGHT_BY_KEY[key]){ const opts=setupParamOpts(key); return opts?'<select'+roSel+' class="setupWeightInput" data-field="'+key+'">'+paramOptionEls(opts,entry.weights[key])+'</select>':'<input type="text"'+ro+' class="setupWeightInput" data-field="'+key+'" value="'+esc(entry.weights[key])+'">'; }
+      return sharedControl(key);
+    };
+    const genCells = (keys)=> keys.map(k=>({label:genLabel(k,true), control:genControl(k)}));
     const axleBox = (title, axleKeys, thirdTitle, thirdKeys)=>
       '<div class="setup-corner-card">'+
         '<div class="setup-banner" style="border-radius:0;">'+title+'</div>'+
@@ -4482,28 +4501,28 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     let miscRows = '';
     SETUP_MISC_GROUPS.forEach(g=>{
       miscRows += '<tr class="setup-subhead"><td colspan="4">'+g.title+'</td></tr>';
-      miscRows += pairRows(axleCells(g.keys, false));
+      miscRows += pairRows(genCells(g.keys));
     });
     html += '<div class="setup-axle-center" style="margin-top:16px;"><div class="setup-corner-card" style="max-width:760px;">'+
       '<div class="setup-banner" style="border-radius:0;">VOITURE / DIVERS</div>'+
       '<table class="setup-corner-table"><tbody>'+miscRows+'</tbody></table></div></div>';
 
-    // 3) Conditions + Homologation / Poids / Resultats
+    // Weight box (calcules + ballast)
+    const ballastRow = SETUP_BALLAST_KEYS.map(k=>'<td class="setup-label">'+genLabel(k).replace(/^Ballast /,'')+'</td><td>'+genControl(k)+'</td>').join('');
+    html += '<div class="setup-axle-center" style="margin-top:16px;"><div class="setup-corner-card" style="max-width:560px;">'+
+      '<div class="setup-banner" style="border-radius:0;">WEIGHT</div>'+
+      '<table class="setup-corner-table"><tbody>'+
+        pairRows(genCells(SETUP_WEIGHT_TOP))+
+        '<tr class="setup-subhead"><td colspan="6">Ballast</td></tr>'+
+        '<tr>'+ballastRow+'</tr>'+
+      '</tbody></table></div></div>';
+
+    // 3) Conditions + Homologation
     html += '<div class="setup-shared-grid" style="margin-top:16px;">';
     html += condBox();
-    html += '<div class="setup-shared-box"><h5>Homologation / Poids / Resultats</h5><div class="setup-field-grid">';
-    SETUP_WEIGHTS_FIELDS.forEach(f=>{
-      let ctl;
-      if(SETUP_COMPUTED_WEIGHTS.indexOf(f.key)>=0){
-        const v = cval(entry.weights[f.key]);
-        ctl = '<span class="setup-computed" data-field="'+f.key+'" style="flex:1;">'+((v==null||v==='')?'-':v)+'</span>';
-      } else {
-        const opts = setupParamOpts(f.key);
-        ctl = opts
-          ? '<select'+roSel+' class="setupWeightInput" data-field="'+f.key+'">'+paramOptionEls(opts, entry.weights[f.key])+'</select>'
-          : '<input type="text"'+ro+' class="setupWeightInput" data-field="'+f.key+'" value="'+esc(entry.weights[f.key])+'">';
-      }
-      html += '<div class="setup-field-row"><label>'+f.label+'</label>'+ctl+'</div>';
+    html += '<div class="setup-shared-box"><h5>Homologation</h5><div class="setup-field-grid">';
+    SETUP_HOMOLOG_KEYS.forEach(k=>{
+      html += '<div class="setup-field-row"><label>'+genLabel(k)+'</label>'+genControl(k)+'</div>';
     });
     html += '</div></div>';
     html += '</div>';
@@ -4741,18 +4760,26 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       html += '</div>';
       // REAR
       html += '<div class="setup-axle-center" style="margin-top:16px;">'+axleCmpBox('REAR', SETUP_REAR_AXLE, '3rd Element Rear', SETUP_THIRD_REAR)+'</div>';
+      // cellule generique comparaison (poids ou partage)
+      const glabC = (key)=>{ if(WEIGHT_BY_KEY[key]) return WEIGHT_BY_KEY[key].label; const f=SHARED_FIELD_BY_KEY[key]; return f?f.label.replace(/^3rd Elem\. (Front|Rear) - /,'')+(f.unit?' ['+f.unit+']':''):key; };
+      const genCmpCell = (key)=>{ const w=!!WEIGHT_BY_KEY[key]; return {label:glabC(key), v1:(w?wV(snapA,key):sV(snapA,key)), v2:(w?wV(snapB,key):sV(snapB,key))}; };
       // Voiture / Divers
       let miscCmp = '';
       SETUP_MISC_GROUPS.forEach(g=>{
         miscCmp += '<tr class="setup-subhead"><td colspan="6">'+g.title+'</td></tr>';
-        miscCmp += pairCmp(g.keys.map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return {label:f.label+(f.unit?' ['+f.unit+']':''), v1:sV(snapA,k), v2:sV(snapB,k)}; }));
+        miscCmp += pairCmp(g.keys.map(genCmpCell));
       });
       html += '<div class="setup-axle-center" style="margin-top:16px;"><div class="setup-corner-card" style="max-width:760px;"><div class="setup-banner" style="border-radius:0;">VOITURE / DIVERS</div><table class="setup-corner-table setup-cmp-table">'+cHead+'<tbody>'+miscCmp+'</tbody></table></div></div>';
-      // Conditions + Resultats
+      // Weight (calcules + ballast)
+      let weightCmp = pairCmp(SETUP_WEIGHT_TOP.map(genCmpCell));
+      weightCmp += '<tr class="setup-subhead"><td colspan="6">Ballast</td></tr>';
+      weightCmp += pairCmp(SETUP_BALLAST_KEYS.map(k=>{ const c=genCmpCell(k); c.label=c.label.replace(/^Ballast /,''); return c; }));
+      html += '<div class="setup-axle-center" style="margin-top:16px;"><div class="setup-corner-card" style="max-width:560px;"><div class="setup-banner" style="border-radius:0;">WEIGHT</div><table class="setup-corner-table setup-cmp-table">'+cHead+'<tbody>'+weightCmp+'</tbody></table></div></div>';
+      // Conditions + Homologation
       html += '<div class="setup-shared-grid" style="margin-top:16px;">';
       let condRows=''; SETUP_CONDITION_FIELDS.forEach(f=>{ condRows += '<tr>'+cmpTriple(f.label, condV(snapA,f.key), condV(snapB,f.key))+'</tr>'; });
       html += '<div class="setup-shared-box"><h5>Session Conditions</h5><table class="setup-corner-table setup-cmp-table"><thead><tr><th>Parametre</th><th>Setup 1</th><th>Setup 2</th></tr></thead><tbody>'+condRows+'</tbody></table></div>';
-      html += '<div class="setup-shared-box"><h5>Homologation / Poids / Resultats</h5><table class="setup-corner-table setup-cmp-table">'+cHead+'<tbody>'+pairCmp(SETUP_WEIGHTS_FIELDS.map(f=>({label:f.label, v1:wV(snapA,f.key), v2:wV(snapB,f.key)})))+'</tbody></table></div>';
+      html += '<div class="setup-shared-box"><h5>Homologation</h5><table class="setup-corner-table setup-cmp-table"><thead><tr><th>Parametre</th><th>Setup 1</th><th>Setup 2</th></tr></thead><tbody>'+SETUP_HOMOLOG_KEYS.map(k=>{ const c=genCmpCell(k); return '<tr>'+cmpTriple(c.label,c.v1,c.v2)+'</tr>'; }).join('')+'</tbody></table></div>';
       html += '</div>';
     }
 
@@ -4803,10 +4830,15 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // Arriere
     html += box('Arriere (essieu)', SETUP_REAR_AXLE.filter(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return !(f.source==='plank'||f.source==='brake'); }).map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return rowShared(k, f.label+(f.unit?' ['+f.unit+']':'')); }).join('') +
       SETUP_THIRD_REAR.map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return rowShared(k, '3rd - '+f.label.replace(/^3rd Elem\. Rear - /,'')); }).join(''));
-    // Poids / resultats (rake/total/cross sont calcules, non listes ici)
-    html += box('Homologation / Poids / Resultats', SETUP_WEIGHTS_FIELDS.filter(f=>SETUP_COMPUTED_WEIGHTS.indexOf(f.key)<0).map(f=>rowShared(f.key, f.label)).join(''));
-    // Voiture / Divers
-    html += box('Voiture / Divers', SETUP_MISC_FIELDS.map(f=>rowShared(f.key, f.label+(f.unit?' ['+f.unit+']':''))).join(''));
+    // Label generique (poids ou partage)
+    const plab = (k)=>{ if(WEIGHT_BY_KEY[k]) return WEIGHT_BY_KEY[k].label; const f=SHARED_FIELD_BY_KEY[k]; return f?f.label+(f.unit?' ['+f.unit+']':''):k; };
+    // Homologation (cell capacity + balances, sans les calcules)
+    html += box('Homologation', SETUP_HOMOLOG_KEYS.map(k=>rowShared(k, plab(k))).join(''));
+    // Voiture / Divers (cles des groupes, sauf calcules)
+    const miscParamKeys = []; SETUP_MISC_GROUPS.forEach(g=>g.keys.forEach(k=>{ if(SETUP_COMPUTED_WEIGHTS.indexOf(k)<0) miscParamKeys.push(k); }));
+    html += box('Voiture / Divers', miscParamKeys.map(k=>rowShared(k, plab(k))).join(''));
+    // Ballast
+    html += box('Ballast', SETUP_BALLAST_KEYS.map(k=>rowShared(k, plab(k))).join(''));
 
     // Ride height : table d'equivalence RH chassis <-> RH measurement (conversion auto)
     const rhRow = (axle, label)=>{
@@ -4919,6 +4951,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       label: strip ? f.label.replace(/^3rd Elem\. (Front|Rear) - /,'') : (f.label+(f.unit?' ['+f.unit+']':'')),
       target: cval(entry.shared[key]), releve: entry.readings.shared[key]||'', attrs:'data-sec="shared" data-field="'+key+'"'
     }; };
+    // cellule generique selon la categorie (calcule / poids / partage) pour target+releve
+    const glab = (key)=>{ if(WEIGHT_BY_KEY[key]) return WEIGHT_BY_KEY[key].label; const f=SHARED_FIELD_BY_KEY[key]; return f? f.label.replace(/^3rd Elem\. (Front|Rear) - /,'')+(f.unit?' ['+f.unit+']':'') : key; };
+    const genCellTodo = (key)=>{
+      if(SETUP_COMPUTED_WEIGHTS.indexOf(key)>=0) return {label:glab(key), target:cval(entry.weights[key]), releve:entry.readings.weights[key]||'', readonly:true, compKey:key};
+      if(WEIGHT_BY_KEY[key]) return {label:glab(key), target:cval(entry.weights[key]), releve:entry.readings.weights[key]||'', attrs:'data-sec="weight" data-field="'+key+'"'};
+      return {label:glab(key), target:cval(entry.shared[key]), releve:entry.readings.shared[key]||'', attrs:'data-sec="shared" data-field="'+key+'"'};
+    };
     const rHead = '<thead><tr><th>Parametre</th><th>Target</th><th class="releve-col">Releve</th><th>Parametre</th><th>Target</th><th class="releve-col">Releve</th></tr></thead>';
     const axleReleveBox = (title, axleKeys, thirdTitle, thirdKeys)=>{
       let rows = pairReleveRows(axleKeys.map(k=>sharedCell(k,false)));
@@ -4962,19 +5001,30 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     let miscRel = '';
     SETUP_MISC_GROUPS.forEach(g=>{
       miscRel += '<tr class="setup-subhead"><td colspan="6">'+g.title+'</td></tr>';
-      miscRel += pairReleveRows(g.keys.map(k=>sharedCell(k,false)));
+      miscRel += pairReleveRows(g.keys.map(genCellTodo));
     });
     html += '<div class="setup-axle-center" style="margin-top:16px;"><div class="setup-corner-card" style="max-width:760px;">'+
       '<div class="setup-banner" style="border-radius:0;">VOITURE / DIVERS</div>'+
       '<table class="setup-corner-table setup-releve-table">'+rHead+'<tbody>'+miscRel+'</tbody></table></div></div>';
 
-    // Conditions (lecture seule) + Resultats (avec releve)
+    // Weight (calcules + ballast)
+    let weightRel = pairReleveRows(SETUP_WEIGHT_TOP.map(genCellTodo));
+    weightRel += '<tr class="setup-subhead"><td colspan="6">Ballast</td></tr>';
+    weightRel += pairReleveRows(SETUP_BALLAST_KEYS.map(k=>{ const c=genCellTodo(k); c.label=c.label.replace(/^Ballast /,''); return c; }));
+    html += '<div class="setup-axle-center" style="margin-top:16px;"><div class="setup-corner-card" style="max-width:560px;">'+
+      '<div class="setup-banner" style="border-radius:0;">WEIGHT</div>'+
+      '<table class="setup-corner-table setup-releve-table">'+rHead+'<tbody>'+weightRel+'</tbody></table></div></div>';
+
+    // Conditions (lecture seule) + Homologation (avec releve)
     html += '<div class="setup-shared-grid" style="margin-top:16px;">';
     html += '<div class="setup-shared-box"><h5>Session Conditions (lecture seule)</h5><div class="setup-field-grid">';
     SETUP_CONDITION_FIELDS.forEach(f=>{ html += '<div class="setup-field-row"><label>'+f.label+'</label><span class="small">'+tval(entry.conditions[f.key])+'</span></div>'; });
     html += '</div></div>';
-    const wCells = SETUP_WEIGHTS_FIELDS.map(f=>{ const comp=SETUP_COMPUTED_WEIGHTS.indexOf(f.key)>=0; return {label:f.label, target:cval(entry.weights[f.key]), releve:entry.readings.weights[f.key]||'', attrs:'data-sec="weight" data-field="'+f.key+'"', readonly:comp, compKey:comp?f.key:null}; });
-    html += '<div class="setup-shared-box"><h5>Homologation / Poids / Resultats</h5><table class="setup-corner-table setup-releve-table">'+rHead+'<tbody>'+pairReleveRows(wCells)+'</tbody></table></div>';
+    html += '<div class="setup-shared-box"><h5>Homologation</h5><table class="setup-corner-table setup-releve-table"><thead><tr><th>Parametre</th><th>Target</th><th class="releve-col">Releve</th></tr></thead><tbody>'+
+      SETUP_HOMOLOG_KEYS.map(k=>{ const c=genCellTodo(k); return '<tr>'+
+        '<td class="setup-label">'+c.label+'</td><td class="setup-target">'+tval(c.target)+'</td>'+
+        (c.readonly?'<td class="setup-target">'+tval(c.releve)+'</td>':'<td class="setup-releve-td'+(setupReleveDiff(c.target,c.releve)?' releve-diff':'')+'"><input type="text" class="setupReleveInput" '+c.attrs+' value="'+esc(c.releve)+'"></td>')+
+        '</tr>'; }).join('')+'</tbody></table></div>';
     html += '</div>';
 
     box.innerHTML = html;
