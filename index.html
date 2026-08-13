@@ -1214,6 +1214,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       if(!data.rhConversion.rear.length) data.rhConversion.rear = [{c:'50',m:'142'},{c:'70',m:'122'}];
       data.rhConversionRearPreset = true;
     }
+    // Setup marque "actuellement sur la voiture" (reference pour le stock + la buildsheet)
+    if(typeof data.currentSetupTaskKey!=='string') data.currentSetupTaskKey = '';
     return data;
   }
 
@@ -2815,14 +2817,40 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     return html;
   }
 
+  function findAssemblyByName(name){
+    if(!name) return null;
+    return (STATE.brakeAssemblies||[]).find(a=>(a.name||('Assemblage #'+a.id))===name) || null;
+  }
+  function currentSetupEntry(){
+    const tk = STATE.currentSetupTaskKey;
+    return (tk && STATE.setupData && STATE.setupData[tk]) ? STATE.setupData[tk] : null;
+  }
+  // La buildsheet derive l'assemblage monte par essieu depuis le setup "actuel" (brakeSetFront/Rear)
   function detectMountedBrakeAssembly(axle){
-    const posL = axle==='avant' ? 'FL' : 'RL';
-    const posR = axle==='avant' ? 'FR' : 'RR';
-    const discL = STATE.stockItems.find(i=>i.categoryKey==='disc' && i.position===posL && i.status==='voiture');
-    const discR = STATE.stockItems.find(i=>i.categoryKey==='disc' && i.position===posR && i.status==='voiture');
-    return (STATE.brakeAssemblies||[]).find(a=>
-      a.discL && discL && a.discL===discL.id && a.discR && discR && a.discR===discR.id
-    ) || null;
+    const e = currentSetupEntry();
+    if(!e || !e.shared) return null;
+    return findAssemblyByName(axle==='avant' ? cval(e.shared.brakeSetFront) : cval(e.shared.brakeSetRear));
+  }
+  // Applique le setup "actuel" au stock : pieces des sets front/rear + planches -> Voiture, anciennes -> Camion
+  function applyCurrentSetupToStock(){
+    const e = currentSetupEntry();
+    if(!e || !e.shared) return;
+    const frontAsm = findAssemblyByName(cval(e.shared.brakeSetFront));
+    const rearAsm = findAssemblyByName(cval(e.shared.brakeSetRear));
+    const onCarBrake = new Set();
+    [frontAsm, rearAsm].forEach(a=>{ if(a){ ['discL','discR','bellL','bellR','padL','padR'].forEach(f=>{ if(a[f]) onCarBrake.add(a[f]); }); } });
+    const onCarPlanks = new Set([cval(e.shared.plankFront), cval(e.shared.plankRear)].filter(Boolean).map(String));
+    let changed = false;
+    STATE.stockItems.forEach(i=>{
+      if(['disc','pad','bell'].includes(i.categoryKey)){
+        if(onCarBrake.has(i.id)){ if(i.status!=='voiture'){ i.status='voiture'; i.lastStatusChange=todayISO(); changed=true; } }
+        else if(i.status==='voiture'){ i.status='camion'; i.lastStatusChange=todayISO(); changed=true; }
+      } else if(i.categoryKey==='plank'){
+        if(onCarPlanks.has(String(i.code))){ if(i.status!=='voiture'){ i.status='voiture'; i.lastStatusChange=todayISO(); changed=true; } }
+        else if(i.status==='voiture'){ i.status='camion'; i.lastStatusChange=todayISO(); changed=true; }
+      }
+    });
+    return changed;
   }
 
   function renderBrakeAxleSlot(axle){
@@ -4423,8 +4451,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
           '<option value="setdown"'+(entry.phase==='setdown'?' selected':'')+'>Setdown (apres seance)</option>'+
         '</select></div>'+
         '<div style="flex:0 0 auto;"><button class="primary" id="setupSaveBtn" style="margin-top:0;">Enregistrer dans l\'historique</button></div>'+
+        '<div style="flex:0 0 auto;"><button class="secondary" id="setupCurrentBtn" style="margin-top:0;'+(STATE.currentSetupTaskKey===taskKey?'background:#1f7a4d;border-color:#1f7a4d;color:#fff;font-weight:700;':'')+'">'+(STATE.currentSetupTaskKey===taskKey?'✓ Setup actuel (voiture)':'Marquer comme setup actuel')+'</button></div>'+
         '<div style="flex:0 0 auto;"><label class="lr-link-toggle"><input type="checkbox" id="setupLinkLRToggle"'+(STATE.setupLinkLR?' checked':'')+'> Lier G/D (recopie auto)</label></div>'+
-        '<div style="flex:1;"><span class="small">Ce brouillon n\'entre dans l\'historique qu\'au clic sur Enregistrer.</span></div>'+
+        '<div style="flex:1;"><span class="small">Marquer un setup comme "actuel" met les sets de frein / planches sur la Voiture (stock) et l\'ancien en Camion.</span></div>'+
       '</div>';
     }
     const roSel = readOnly ? ' disabled' : '';
@@ -4584,7 +4613,12 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     });
     container.querySelectorAll('.setupSharedInput').forEach(inp=>{
       inp.addEventListener('change', (e)=>{
-        getSetupEntry(taskKey).shared[e.target.dataset.field] = e.target.value;
+        const field = e.target.dataset.field;
+        getSetupEntry(taskKey).shared[field] = e.target.value;
+        // si ce setup est l'actuel et qu'un set de frein / planche change -> maj stock
+        if(STATE.currentSetupTaskKey===taskKey && ['brakeSetFront','brakeSetRear','plankFront','plankRear'].indexOf(field)>=0){
+          applyCurrentSetupToStock();
+        }
         saveState();
       });
     });
@@ -4606,6 +4640,15 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(linkTgl) linkTgl.addEventListener('change', (e)=>{ STATE.setupLinkLR = e.target.checked; saveState(); });
     const saveBtn = container.querySelector('#setupSaveBtn');
     if(saveBtn) saveBtn.addEventListener('click', ()=> saveSetupSnapshot(taskKey));
+    const curBtn = container.querySelector('#setupCurrentBtn');
+    if(curBtn) curBtn.addEventListener('click', ()=>{
+      if(!taskKey){ alert('Choisissez une session/seance.'); return; }
+      STATE.currentSetupTaskKey = taskKey;
+      applyCurrentSetupToStock();
+      saveState();
+      renderSetupSubContent();
+      alert('Setup marque comme actuel. Sets de frein / planches passes sur la Voiture (stock), anciens en Camion.');
+    });
   }
 
   function saveSetupSnapshot(taskKey){
