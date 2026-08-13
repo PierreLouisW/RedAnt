@@ -3344,7 +3344,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
     // options setup snapshots + tyre sets
     const snapOpts = '<option value="">(aucun)</option>'+(STATE.setupSnapshots||[]).slice().sort((a,b)=>(b.savedAt||0)-(a.savedAt||0)).map(s=>{
-      const found=findTodoTask(s.taskKey); const lbl='['+(s.phase==='setdown'?'Setdown':'Setup')+'] '+(s.name?s.name+' - ':'')+(found?fmtDate(found.task.date)+' '+found.task.text:'')+' #'+s.id;
+      const found=findTodoTask(s.taskKey); const lbl = s.name ? s.name : ('['+(s.phase==='setdown'?'Setdown':'Setup')+'] '+(found?fmtDate(found.task.date)+' '+found.task.text:'')+' #'+s.id);
       return '<option value="'+s.id+'" '+(String(st.setupId)===String(s.id)?'selected':'')+'>'+lbl+'</option>';
     }).join('');
     const rimCodes = runTyreSetCodes();
@@ -3358,7 +3358,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       return '<div class="rs-field"><label>'+f.label+'</label>'+ctl+'</div>';
     };
     let condBox = '<div class="rs-box"><h5>Conditions du run</h5>'+
-      '<div class="rs-field" style="margin-bottom:8px;"><label>Nom du run</label><input type="text" class="rsMetaInput" data-key="name" value="'+esc(st.name)+'" placeholder="ex: Paul ALBERTO - Decouverte / pneus neufs"></div>'+
+      '<div class="rs-field" style="margin-bottom:8px;"><label>Nom du run</label><input type="text" class="rsMetaInput" data-key="name" value="'+esc(st.name)+'"></div>'+
       '<div class="rs-cond-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));">'+
         '<div class="rs-field"><label>Pilote</label><select class="rsMetaInput" data-key="driver">'+runDriverOptions(st.driver)+'</select></div>'+
         '<div class="rs-field"><label>Setup utilise</label><select class="rsMetaInput" data-key="setupId">'+snapOpts+'</select></div>'+
@@ -5474,7 +5474,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const circ = found ? (circuitGuessFromLocation(found.ev.location)||found.ev.label) : '-';
       const dt = found ? fmtDate(found.task.date) : '';
       const ph = s.phase==='setdown' ? 'Setdown' : 'Setup';
-      return {id:String(s.id), label: '['+ph+'] '+(s.name?s.name+' - ':'')+dt+' - '+circ+(found?' - '+found.task.text:'')};
+      return {id:String(s.id), label: s.name ? s.name : ('['+ph+'] '+dt+' - '+circ+(found?' - '+found.task.text:''))};
     }).sort((a,b)=> a.label<b.label?-1:1);
 
     let html = '<div class="row">'+
