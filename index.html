@@ -265,6 +265,10 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .setup-corner-table tr.setup-subhead td{background:var(--panel);color:var(--accent);font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:.4px;padding:5px 6px;}
 .setup-axle-center{display:flex;justify-content:center;}
 .setup-axle-center .setup-corner-card{width:100%;max-width:460px;}
+.setup-field-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 18px;}
+.setup-field-grid .setup-field-row{margin-bottom:0;}
+.setup-field-grid .setup-field-row label{flex:0 0 92px;}
+@media (max-width:560px){.setup-field-grid{grid-template-columns:1fr;}}
 .setup-shared-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
 @media (max-width:900px){.setup-shared-grid{grid-template-columns:1fr;}}
 .setup-shared-box{border:1px solid var(--border);border-radius:8px;background:var(--panel2);padding:10px 12px;}
@@ -1136,6 +1140,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         Object.keys(cwMap).forEach(w=>{ const corner=cwMap[w], v=cv2(e.weights[w]); e.corners[corner]=e.corners[corner]||{}; if(v && (e.corners[corner].cornerWeight==null || e.corners[corner].cornerWeight==='')) e.corners[corner].cornerWeight=v; });
       });
       data.setupLayoutMigV2 = true;
+    }
+    // Meteo : 'Sec' -> 'Dry' (libelle passe en anglais)
+    if(!data.setupWeatherEnMig){
+      const fixW = (o)=>{ if(o && o.conditions && o.conditions.weather==='Sec') o.conditions.weather='Dry'; };
+      Object.keys(data.setupData).forEach(k=>fixW(data.setupData[k]));
+      (data.setupSnapshots||[]).forEach(s=>fixW(s));
+      data.setupWeatherEnMig = true;
     }
     if(!Array.isArray(data.setupSnapshots)) data.setupSnapshots = [];
     if(typeof data.setupPassword!=='string') data.setupPassword = '';
@@ -3993,11 +4004,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   const SHARED_FIELD_BY_KEY = {};
   SETUP_SHARED_FIELDS.forEach(f=>{ SHARED_FIELD_BY_KEY[f.key]=f; });
   const SETUP_CONDITION_FIELDS = [
-    {key:'weather', label:'Meteo', type:'select', options:['Sec','Wet']},
-    {key:'driver', label:'Pilote', type:'driver'},
-    {key:'lapTime', label:'Chrono (best lap)'},
-    {key:'airTemp', label:'Temp. air (C)'},
-    {key:'trackTemp', label:'Temp. piste (C)'}
+    {key:'weather', label:'Weather', type:'select', options:['Dry','Wet']},
+    {key:'driver', label:'Driver', type:'driver'},
+    {key:'lapTime', label:'Best Lap'},
+    {key:'airTemp', label:'Air Temp (C)'},
+    {key:'trackTemp', label:'Track Temp (C)'}
   ];
 
   // Valeur d'un champ, tolerant a l'ancien format {target,actual}
@@ -4038,7 +4049,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function setupDriverOptions(sel){
     const esc = (x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
     const names = Array.from(new Set((STATE.sessions||[]).map(s=>s.pilote).filter(Boolean)));
-    let o = '<option value="">(non defini)</option>'; let has=false;
+    let o = '<option value="">(not set)</option>'; let has=false;
     names.forEach(n=>{ if(String(sel)===String(n)) has=true; o += '<option value="'+esc(n)+'"'+(String(sel)===String(n)?' selected':'')+'>'+n+'</option>'; });
     if(sel && !has) o += '<option value="'+esc(sel)+'" selected>'+sel+'</option>';
     return o;
@@ -4153,7 +4164,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         '</tbody></table>'+
       '</div>';
     const condBox = ()=>{
-      let h = '<div class="setup-shared-box"><h5>Conditions de session</h5>';
+      let h = '<div class="setup-shared-box"><h5>Session Conditions</h5><div class="setup-field-grid">';
       SETUP_CONDITION_FIELDS.forEach(f=>{
         let ctl;
         if(f.type==='select') ctl = '<select'+roSel+' class="setupCondInput" data-field="'+f.key+'"><option value="">(-)</option>'+f.options.map(o=>'<option value="'+o+'"'+(cval(entry.conditions[f.key])===o?' selected':'')+'>'+o+'</option>').join('')+'</select>';
@@ -4161,7 +4172,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         else ctl = '<input type="text"'+ro+' class="setupCondInput" data-field="'+f.key+'" value="'+esc(entry.conditions[f.key])+'">';
         h += '<div class="setup-field-row"><label>'+f.label+'</label>'+ctl+'</div>';
       });
-      return h + '</div>';
+      return h + '</div></div>';
     };
 
     // 1) FRONT (essieu) au-dessus des roues, centre
@@ -4191,12 +4202,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // 3) Conditions + Homologation / Poids / Resultats
     html += '<div class="setup-shared-grid" style="margin-top:16px;">';
     html += condBox();
-    html += '<div class="setup-shared-box"><h5>Homologation / Poids / Resultats</h5>';
-    html += '<table class="setup-weights-table"><tbody>';
+    html += '<div class="setup-shared-box"><h5>Homologation / Poids / Resultats</h5><div class="setup-field-grid">';
     SETUP_WEIGHTS_FIELDS.forEach(f=>{
-      html += '<tr><td class="setup-label">'+f.label+'</td><td><input type="text"'+ro+' class="setupWeightInput" data-field="'+f.key+'" value="'+esc(entry.weights[f.key])+'"></td></tr>';
+      html += '<div class="setup-field-row"><label>'+f.label+'</label><input type="text"'+ro+' class="setupWeightInput" data-field="'+f.key+'" value="'+esc(entry.weights[f.key])+'"></div>';
     });
-    html += '</tbody></table></div>';
+    html += '</div></div>';
     html += '</div>';
 
     container.innerHTML = html;
