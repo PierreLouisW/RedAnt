@@ -1179,6 +1179,14 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       ['lsb','hsb','lsr','hsr'].forEach(k=>{ if(!data.setupParamOptions[k]) data.setupParamOptions[k] = ['1-40']; });
       data.setupParamPresetClicks = true;
     }
+    // Table d'equivalence RH chassis <-> RH measurement (par essieu), pour conversion auto
+    if(!data.rhConversion || typeof data.rhConversion!=='object') data.rhConversion = {front:[], rear:[]};
+    if(!Array.isArray(data.rhConversion.front)) data.rhConversion.front = [];
+    if(!Array.isArray(data.rhConversion.rear)) data.rhConversion.rear = [];
+    if(!data.rhConversionPreset){
+      if(!data.rhConversion.front.length) data.rhConversion.front = [{c:'51.5',m:'128.5'},{c:'52.64',m:'127.36'}];
+      data.rhConversionPreset = true;
+    }
     return data;
   }
 
@@ -4052,6 +4060,40 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   SETUP_SHARED_FIELDS.forEach(f=>{ SHARED_FIELD_BY_KEY[f.key]=f; });
   const FIELD_BY_KEY = {};
   SETUP_FIELDS.forEach(f=>{ FIELD_BY_KEY[f.key]=f; });
+  // ---- Conversion RH chassis <-> RH measurement (interpolation lineaire sur la table d'equivalence) ----
+  function rhPoints(axle){
+    const t = STATE.rhConversion && STATE.rhConversion[axle];
+    if(!Array.isArray(t)) return [];
+    return t.map(p=>({c:parseFloat(p.c), m:parseFloat(p.m)})).filter(p=>!isNaN(p.c)&&!isNaN(p.m));
+  }
+  function rhInterp(pairs, x){
+    const pts = pairs.filter(p=>!isNaN(p[0])&&!isNaN(p[1]));
+    if(pts.length<2 || isNaN(x)) return null;
+    pts.sort((a,b)=>a[0]-b[0]);
+    let i;
+    if(x<=pts[0][0]) i=0;
+    else if(x>=pts[pts.length-1][0]) i=pts.length-2;
+    else { i=0; while(i<pts.length-1 && !(x>=pts[i][0] && x<=pts[i+1][0])) i++; }
+    const x0=pts[i][0], y0=pts[i][1], x1=pts[i+1][0], y1=pts[i+1][1];
+    if(x1===x0) return y0;
+    return y0 + (y1-y0)*(x-x0)/(x1-x0);
+  }
+  function rhAxleForCorner(cornerKey){ return (cornerKey==='fl'||cornerKey==='fr') ? 'front' : 'rear'; }
+  function rhChassisToMeasure(axle, chassis){ const p=rhPoints(axle); return rhInterp(p.map(q=>[q.c,q.m]), parseFloat(chassis)); }
+  function rhMeasureToChassis(axle, measure){ const p=rhPoints(axle); return rhInterp(p.map(q=>[q.m,q.c]), parseFloat(measure)); }
+  // met a jour le champ apparie (rhChassis<->pushLength) dans un objet corners ; retourne {corner,field,value} ou null
+  function applyRhConversion(cornersObj, cornerKey, changedField){
+    const cc = cornersObj[cornerKey]; if(!cc) return null;
+    const axle = rhAxleForCorner(cornerKey);
+    if(changedField==='rhChassis'){
+      const m = rhChassisToMeasure(axle, cc.rhChassis);
+      if(m!=null){ cc.pushLength = fmtParamNum(m); return {corner:cornerKey, field:'pushLength', value:cc.pushLength}; }
+    } else if(changedField==='pushLength'){
+      const c = rhMeasureToChassis(axle, cc.pushLength);
+      if(c!=null){ cc.rhChassis = fmtParamNum(c); return {corner:cornerKey, field:'rhChassis', value:cc.rhChassis}; }
+    }
+    return null;
+  }
   // valeurs disponibles definies pour un parametre (liste deroulante), sinon null
   function setupParamOpts(key){
     const o = STATE.setupParamOptions && STATE.setupParamOptions[key];
@@ -4327,6 +4369,15 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
           const mInp = container.querySelector('.setupFieldInput[data-corner="'+mirror+'"][data-field="'+field+'"]');
           if(mInp) mInp.value = val;
         }
+        // Conversion auto RH chassis <-> RH measurement (pushLength) sur la roue editee (+ miroir si lie)
+        if(field==='rhChassis' || field==='pushLength'){
+          const cors = [corner];
+          if(STATE.setupLinkLR && mirror) cors.push(mirror);
+          cors.forEach(cor=>{
+            const upd = applyRhConversion(en.corners, cor, field);
+            if(upd){ const el = container.querySelector('.setupFieldInput[data-corner="'+upd.corner+'"][data-field="'+upd.field+'"]'); if(el) el.value = upd.value; }
+          });
+        }
         saveState();
       });
     });
@@ -4575,12 +4626,34 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // Poids / resultats
     html += box('Homologation / Poids / Resultats', SETUP_WEIGHTS_FIELDS.map(f=>row(f.key, f.label)).join(''));
 
+    // Ride height : table d'equivalence RH chassis <-> RH measurement (conversion auto)
+    const rhRow = (axle, label)=>{
+      const t = (STATE.rhConversion && STATE.rhConversion[axle]) || [];
+      const val = t.map(p=>p.c+'='+p.m).join(' ; ');
+      return '<div class="setup-field-row" style="max-width:560px;"><label style="flex:0 0 210px;">'+label+'</label>'+
+        '<input type="text" class="rhConvInput" data-axle="'+axle+'" value="'+esc(val)+'" placeholder="ex: 51.5=128.5 ; 52.64=127.36"></div>';
+    };
+    html += box('Ride height - conversion RH chassis / RH measurement',
+      '<p class="small" style="margin:2px 0 8px;">Entrez au moins <b>2 equivalences</b> <code>RH chassis = RH measurement</code> par essieu. La conversion se fait alors automatiquement dans les deux sens (Editer et To Do).</p>'+
+      rhRow('front','Avant (Front)') + rhRow('rear','Arriere (Rear)'));
+
     container.innerHTML = html;
     container.querySelectorAll('.setupParamOptInput').forEach(inp=>{
       inp.addEventListener('change', (e)=>{
         const key = e.target.dataset.key;
         const arr = e.target.value.split(/[;,\n]/).map(s=>s.trim()).filter(s=>s!=='');
         if(arr.length) STATE.setupParamOptions[key] = arr; else delete STATE.setupParamOptions[key];
+        saveState();
+      });
+    });
+    container.querySelectorAll('.rhConvInput').forEach(inp=>{
+      inp.addEventListener('change', (e)=>{
+        const axle = e.target.dataset.axle;
+        const arr = e.target.value.split(/[;,\n]/).map(s=>s.trim()).filter(Boolean).map(tok=>{
+          const parts = tok.split('='); return {c:(parts[0]||'').trim(), m:(parts[1]||'').trim()};
+        }).filter(p=>p.c!=='' && p.m!=='');
+        STATE.rhConversion = STATE.rhConversion || {front:[], rear:[]};
+        STATE.rhConversion[axle] = arr;
         saveState();
       });
     });
@@ -4727,6 +4800,23 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
               if(setupReleveDiff(mTarget, val)) mInp.parentElement.classList.add('releve-diff');
               else mInp.parentElement.classList.remove('releve-diff');
             }
+          }
+          // Conversion auto RH chassis <-> RH measurement sur le releve (+ miroir si lie)
+          if(field==='rhChassis' || field==='pushLength'){
+            const cors = [t.dataset.corner];
+            if(STATE.setupLinkLR && mirror) cors.push(mirror);
+            cors.forEach(cor=>{
+              const upd = applyRhConversion(en.readings.corners, cor, field);
+              if(upd){
+                const el = box.querySelector('.setupReleveInput[data-sec="corner"][data-corner="'+upd.corner+'"][data-field="'+upd.field+'"]');
+                if(el){
+                  el.value = upd.value;
+                  const tgt = cval(en.corners[cor][upd.field]);
+                  if(setupReleveDiff(tgt, upd.value)) el.parentElement.classList.add('releve-diff');
+                  else el.parentElement.classList.remove('releve-diff');
+                }
+              }
+            });
           }
         }
         else if(sec==='shared') en.readings.shared[field] = val;
