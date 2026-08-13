@@ -1184,12 +1184,18 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       ['lsb','hsb','lsr','hsr'].forEach(k=>{ if(!data.setupParamOptions[k]) data.setupParamOptions[k] = ['1-40']; });
       data.setupParamPresetClicks = true;
     }
-    // Regles d'ajustement pour le bandeau de corrections mecano : { fieldKey: {step, label} }
+    // Regles d'ajustement pour le bandeau de corrections mecano : { fieldKey[::front|::rear]: {step, label} }
     if(!data.setupCorrections || typeof data.setupCorrections!=='object') data.setupCorrections = {};
-    if(!data.setupCorrPreset){
-      // exemple : camber ajuste par shim (2mm -> 0.5 deg)
-      if(!data.setupCorrections.camber) data.setupCorrections.camber = {step:0.5, label:'shim 2mm'};
-      data.setupCorrPreset = true;
+    if(!data.setupCorrPresetV2){
+      delete data.setupCorrections.camber; // ancien generique
+      const set=(k,v)=>{ if(!data.setupCorrections[k]) data.setupCorrections[k]=v; };
+      set('camber::front',{step:0.25,label:'mm wedge'});
+      set('camber::rear', {step:0.25,label:'mm wedge'});
+      set('toe::front',   {step:0.25,label:'nut face'});
+      set('toe::rear',    {step:0.33,label:'nut face'});
+      set('pushLength::front',{step:0.57,label:'nut face'});
+      set('pushLength::rear', {step:0.91,label:'nut face'});
+      data.setupCorrPresetV2 = true;
     }
     // Table d'equivalence RH chassis <-> RH measurement (par essieu), pour conversion auto
     if(!data.rhConversion || typeof data.rhConversion!=='object') data.rhConversion = {front:[], rear:[]};
@@ -4129,12 +4135,17 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(SETUP_REAR_AXLE.indexOf(key)>=0 || SETUP_THIRD_REAR.indexOf(key)>=0) return 'Ar';
     return '';
   }
+  // regle d'ajustement d'un champ (specifique a l'essieu si definie, sinon generique)
+  function corrRule(fieldKey, axle){
+    const c = STATE.setupCorrections || {};
+    return (axle && c[fieldKey+'::'+axle]) || c[fieldKey] || null;
+  }
   // texte de correction pour un ecart mesure->cible (avec regle d'ajustement si definie)
-  function describeCorrection(prefix, field, target, releve){
+  function describeCorrection(prefix, field, target, releve, axle){
     const t = String(cval(target)).trim(), r = String(releve==null?'':releve).trim();
     const head = (prefix?prefix+' ':'') + field.label + (field.unit?' ['+field.unit+']':'');
     let s = head + ' : ' + r + ' → ' + t;
-    const rule = STATE.setupCorrections && STATE.setupCorrections[field.key];
+    const rule = corrRule(field.key, axle);
     if(rule && rule.step){
       const d = parseFloat(t) - parseFloat(r);
       if(!isNaN(d)){
@@ -4153,14 +4164,16 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const items = [];
     const diff = (a,b)=>{ const x=String(cval(a)).trim(), y=String(b==null?'':b).trim(); return x!=='' && y!=='' && x!==y; };
     SETUP_CORNERS.forEach(c=>{
+      const axle = rhAxleForCorner(c.key);
       SETUP_FIELDS.forEach(f=>{
+        if(f.key==='rhChassis') return; // affiche via RH measurement pour eviter le doublon
         const tg = entry.corners[c.key][f.key], rl = entry.readings.corners[c.key][f.key];
-        if(diff(tg, rl)) items.push(describeCorrection(c.label, f, tg, rl));
+        if(diff(tg, rl)) items.push(describeCorrection(c.label, f, tg, rl, axle));
       });
     });
     SETUP_SHARED_FIELDS.forEach(f=>{
       const tg = entry.shared[f.key], rl = entry.readings.shared[f.key];
-      if(diff(tg, rl)) items.push(describeCorrection(sharedAxlePrefix(f.key), f, tg, rl));
+      if(diff(tg, rl)) items.push(describeCorrection(sharedAxlePrefix(f.key), f, tg, rl, sharedAxlePrefix(f.key)==='Av'?'front':(sharedAxlePrefix(f.key)==='Ar'?'rear':null)));
     });
     return items;
   }
@@ -4677,30 +4690,36 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   // Ecran de configuration des valeurs disponibles par parametre (listes deroulantes du setup)
   function renderSetupParamsView(container){
     const esc = (x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
-    const row = (key, label)=>{
+    const corrStr = (ckey)=>{ const c=STATE.setupCorrections[ckey]; return (c && c.step) ? (c.label||'')+' = '+c.step : ''; };
+    const valsInput = (key)=>{
       const vals = (STATE.setupParamOptions[key]||[]).join(' ; ');
-      const corr = STATE.setupCorrections[key];
-      const corrStr = (corr && corr.step) ? (corr.label||'')+' = '+corr.step : '';
-      return '<div class="setup-field-row" style="max-width:760px;"><label style="flex:0 0 200px;">'+label+'</label>'+
-        '<input type="text" class="setupParamOptInput" data-key="'+key+'" value="'+esc(vals)+'" placeholder="valeurs: 13 ; 14  ou  1-40" style="flex:1;">'+
-        '<input type="text" class="setupCorrInput" data-key="'+key+'" value="'+esc(corrStr)+'" placeholder="ajustement: shim 2mm = 0.5" style="flex:1;"></div>';
+      return '<input type="text" class="setupParamOptInput" data-key="'+key+'" value="'+esc(vals)+'" placeholder="valeurs: 13 ; 14  ou  1-40" style="flex:1;">';
     };
+    const corrInput = (ckey, ph)=> '<input type="text" class="setupCorrInput" data-key="'+ckey+'" value="'+esc(corrStr(ckey))+'" placeholder="'+ph+'" style="flex:1;">';
+    // roue : ajustement separe Avant / Arriere
+    const rowCorner = (key, label)=>
+      '<div class="setup-field-row" style="max-width:900px;"><label style="flex:0 0 170px;">'+label+'</label>'+
+        valsInput(key) + corrInput(key+'::front','Av: nut face = 0.25') + corrInput(key+'::rear','Ar: nut face = 0.33')+'</div>';
+    // essieu / autres : ajustement unique
+    const rowShared = (key, label)=>
+      '<div class="setup-field-row" style="max-width:760px;"><label style="flex:0 0 200px;">'+label+'</label>'+
+        valsInput(key) + corrInput(key,'ajustement: libelle = pas')+'</div>';
     const box = (title, rows)=> '<div class="setup-shared-box" style="margin-bottom:14px;"><h5>'+title+'</h5>'+rows+'</div>';
 
     let html = '<p class="small">Colonne 1 = <b>valeurs disponibles</b> (separees par <b>;</b>, ou plage <code>1-40</code> / <code>0-10:0.5</code>) -> liste deroulante dans Editer. '+
-      'Colonne 2 = <b>ajustement</b> pour le bandeau de corrections du mecano, au format <code>libelle = pas</code> (ex. <code>shim 2mm = 0.5</code> : un shim 2mm change la valeur de 0.5). '+
-      'Le mecano voit alors "ajouter/retirer N × libelle" quand sa mesure differe de la cible. Mettez un pas negatif si l\'ajout diminue la valeur. Laissez vide si non applicable.</p>';
+      '<b>Ajustement</b> pour le bandeau de corrections du mecano, au format <code>libelle = pas</code> (ex. <code>mm wedge = 0.25</code> : 1 mm de wedge change la valeur de 0.25). '+
+      'Pour les roues, l\'ajustement est separe <b>Avant / Arriere</b>. Le mecano voit "ajouter/retirer N × libelle" quand sa mesure differe de la cible (pas negatif si l\'ajout diminue la valeur).</p>';
 
-    // Roue (une seule config, appliquee aux 4 roues)
-    html += box('Roue (applique aux 4 roues)', SETUP_FIELDS.map(f=>row(f.key, f.label+(f.unit?' ['+f.unit+']':''))).join(''));
+    // Roue (une seule config valeurs pour les 4 roues ; ajustement par essieu)
+    html += box('Roue (valeurs communes ; ajustement Avant / Arriere)', SETUP_FIELDS.map(f=>rowCorner(f.key, f.label+(f.unit?' ['+f.unit+']':''))).join(''));
     // Avant
-    html += box('Avant (essieu)', SETUP_FRONT_AXLE.filter(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return !(f.source==='plank'||f.source==='brake'); }).map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return row(k, f.label+(f.unit?' ['+f.unit+']':'')); }).join('') +
-      SETUP_THIRD_FRONT.map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return row(k, '3rd - '+f.label.replace(/^3rd Elem\. Front - /,'')); }).join(''));
+    html += box('Avant (essieu)', SETUP_FRONT_AXLE.filter(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return !(f.source==='plank'||f.source==='brake'); }).map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return rowShared(k, f.label+(f.unit?' ['+f.unit+']':'')); }).join('') +
+      SETUP_THIRD_FRONT.map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return rowShared(k, '3rd - '+f.label.replace(/^3rd Elem\. Front - /,'')); }).join(''));
     // Arriere
-    html += box('Arriere (essieu)', SETUP_REAR_AXLE.filter(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return !(f.source==='plank'||f.source==='brake'); }).map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return row(k, f.label+(f.unit?' ['+f.unit+']':'')); }).join('') +
-      SETUP_THIRD_REAR.map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return row(k, '3rd - '+f.label.replace(/^3rd Elem\. Rear - /,'')); }).join(''));
+    html += box('Arriere (essieu)', SETUP_REAR_AXLE.filter(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return !(f.source==='plank'||f.source==='brake'); }).map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return rowShared(k, f.label+(f.unit?' ['+f.unit+']':'')); }).join('') +
+      SETUP_THIRD_REAR.map(k=>{ const f=SHARED_FIELD_BY_KEY[k]; return rowShared(k, '3rd - '+f.label.replace(/^3rd Elem\. Rear - /,'')); }).join(''));
     // Poids / resultats
-    html += box('Homologation / Poids / Resultats', SETUP_WEIGHTS_FIELDS.map(f=>row(f.key, f.label)).join(''));
+    html += box('Homologation / Poids / Resultats', SETUP_WEIGHTS_FIELDS.map(f=>rowShared(f.key, f.label)).join(''));
 
     // Ride height : table d'equivalence RH chassis <-> RH measurement (conversion auto)
     const rhRow = (axle, label)=>{
