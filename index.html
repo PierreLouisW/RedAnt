@@ -261,6 +261,8 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .setup-corner-table td{padding:3px 6px;border-top:1px solid var(--border);}
 .setup-corner-table td.setup-label{color:var(--muted);white-space:nowrap;}
 .setup-corner-table input{padding:3px 4px;font-size:11px;width:100%;}
+.setup-corner-table td select{padding:3px 4px;font-size:11px;width:100%;}
+.setup-corner-table tr.setup-subhead td{background:var(--panel);color:var(--accent);font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:.4px;padding:5px 6px;}
 .setup-shared-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
 @media (max-width:900px){.setup-shared-grid{grid-template-columns:1fr;}}
 .setup-shared-box{border:1px solid var(--border);border-radius:8px;background:var(--panel2);padding:10px 12px;}
@@ -4140,11 +4142,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       return '<tr><td class="setup-label">'+lab+'</td><td>'+sharedControl(key)+'</td></tr>';
     }).join('');
     const axleBox = (title, axleKeys, thirdTitle, thirdKeys)=>
-      '<div class="setup-shared-box">'+
-        '<h5>'+title+'</h5>'+
-        '<table class="setup-weights-table"><tbody>'+axleRows(axleKeys,false)+'</tbody></table>'+
-        '<h5 style="margin-top:12px;">'+thirdTitle+'</h5>'+
-        '<table class="setup-weights-table"><tbody>'+axleRows(thirdKeys,true)+'</tbody></table>'+
+      '<div class="setup-corner-card">'+
+        '<div class="setup-banner" style="border-radius:0;">'+title+'</div>'+
+        '<table class="setup-corner-table"><thead><tr><th>Parametre</th><th>Target</th></tr></thead><tbody>'+
+          axleRows(axleKeys,false)+
+          '<tr class="setup-subhead"><td colspan="2">'+thirdTitle+'</td></tr>'+
+          axleRows(thirdKeys,true)+
+        '</tbody></table>'+
       '</div>';
     const condBox = ()=>{
       let h = '<div class="setup-shared-box"><h5>Conditions de session</h5>';
