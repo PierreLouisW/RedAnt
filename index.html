@@ -77,6 +77,14 @@ a.dl{color:var(--accent);}
 .rs-check-row{display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:13px;border-top:1px solid var(--border);}
 .rs-check-row:first-of-type{border-top:none;}
 .rs-check-row input[type="checkbox"]{width:auto;flex:0 0 auto;}
+.rs-chips{display:flex;flex-wrap:wrap;gap:6px;}
+.rs-chip{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:3px 10px;font-size:12px;}
+.rs-chip-x{background:transparent;border:none;color:var(--due2);cursor:pointer;font-size:15px;line-height:1;padding:0;}
+.rs-modal-overlay{position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:24px;}
+.rs-modal{background:var(--panel);border:1px solid var(--border);border-top:3px solid var(--accent);border-radius:12px;width:100%;max-width:460px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 14px 40px rgba(0,0,0,.5);}
+.rs-modal-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);font-size:13px;}
+.rs-modal-body{padding:8px 16px;overflow-y:auto;}
+.rs-modal-foot{padding:12px 16px;border-top:1px solid var(--border);text-align:right;}
 .status-pill{display:inline-block;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;color:#fff;}
 .status-pill.jetee{background:#6b6b6b;}
 .status-pill.atelier{background:#2c5f8a;}
@@ -3213,7 +3221,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     return (m[1]?parseInt(m[1]):0)*60 + parseFloat(m[2]);
   }
   function fmtLapTime(sec){
-    if(sec==null || isNaN(sec)) return '-';
+    if(sec==null || !isFinite(sec)) return '-';
     const m=Math.floor(sec/60), s=sec-m*60;
     return m>0 ? (m+':'+s.toFixed(3).padStart(6,'0')) : s.toFixed(3);
   }
@@ -3243,7 +3251,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       return '<option value="'+s.id+'" '+(String(r.setupId)===String(s.id)?'selected':'')+'>'+lbl+'</option>';
     }).join('');
     const rimCodes = runTyreSetCodes();
-    const tyreOpts = '<option value="">(aucun)</option>'+rimCodes.map(c=>'<option value="'+esc(c)+'" '+(r.tyreSet===c?'selected':'')+'>'+c+'</option>').join('')+((r.tyreSet && rimCodes.indexOf(r.tyreSet)<0)?'<option value="'+esc(r.tyreSet)+'" selected>'+r.tyreSet+'</option>':'');
+    const tyreOpts = '<option value="">(aucun)</option>'+rimCodes.map(c=>'<option value="'+esc(c)+'" '+(r.tyreSet===c?'selected':'')+'>'+tyreSetLabel(c)+'</option>').join('')+((r.tyreSet && rimCodes.indexOf(r.tyreSet)<0)?'<option value="'+esc(r.tyreSet)+'" selected>'+r.tyreSet+'</option>':'');
 
     // Conditions box
     const condField = (f)=>{
@@ -3319,7 +3327,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const bestSec=(f)=>{ const v=r.laps.map(l=>parseLapTime(l[f])).filter(x=>x!=null); return v.length?Math.min.apply(null,v):null; };
     const b1=bestSec('s1'),b2=bestSec('s2'),b3=bestSec('s3');
     const theo=(b1!=null&&b2!=null&&b3!=null)?(b1+b2+b3):null;
-    el.innerHTML='<span>Best: <b>'+fmtLapTime(best)+'</b></span><span>Avg: <b>'+fmtLapTime(avg)+'</b></span><span>Theo: <b>'+fmtLapTime(theo)+'</b></span><span>Tours: <b>'+laptimes.length+'</b></span>';
+    const fuelUsed=parseFloat(String(r.fuel.fuelUsed||'').replace(',','.'));
+    const consoLap=(!isNaN(fuelUsed) && laptimes.length) ? (fuelUsed/laptimes.length) : null;
+    el.innerHTML='<span>Best: <b>'+fmtLapTime(best)+'</b></span>'+
+      '<span>Avg: <b>'+fmtLapTime(avg)+'</b>'+(avg!=null?' ('+avg.toFixed(3)+'s)':'')+'</span>'+
+      '<span>Theo: <b>'+fmtLapTime(theo)+'</b></span>'+
+      '<span>Tours: <b>'+laptimes.length+'</b></span>'+
+      '<span>Conso/tour: <b>'+(consoLap!=null?consoLap.toFixed(2)+' L':'-')+'</b></span>';
     // surligner le meilleur tour
     document.querySelectorAll('#rsLapsBody .rsLaptime').forEach(inp=>{
       const cell=inp.parentElement; const v=parseLapTime(inp.value);
@@ -3335,7 +3349,14 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   wireRunStaticEvents();
   // pilotes/pneus disponibles pour l'event (sinon tous)
   function runEventObj(){ return (STATE.mlmcEvents||[]).find(e=>String(e.id)===String(selectedRunContext.eventId)) || null; }
-  function runTyreSetCodes(){ const ev=runEventObj(); const all=Object.keys(groupSetsByCode('rim')).sort(); return (ev && ev.tyreSets && ev.tyreSets.length) ? ev.tyreSets.filter(c=>all.indexOf(c)>=0) : all; }
+  function tyreSetLabel(code){
+    const g = groupSetsByCode('tyre')[code]; if(!g) return code;
+    const items = TYRE_POSITIONS.map(p=>g[p]).filter(Boolean);
+    const comp = (items[0] && items[0].extra && items[0].extra.compound) || '';
+    const nm = (items[0] && items[0].extra && items[0].extra.tyreName) || '';
+    return code+(comp?' ['+comp+']':'')+(nm?' - '+nm:'');
+  }
+  function runTyreSetCodes(){ const ev=runEventObj(); const all=Object.keys(groupSetsByCode('tyre')).sort(); return (ev && ev.tyreSets && ev.tyreSets.length) ? ev.tyreSets.filter(c=>all.indexOf(c)>=0) : all; }
   function runDriverOptions(sel){
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
     const ev=runEventObj();
@@ -3353,17 +3374,33 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     let html='<div class="measure-context-row"><label>Evenement <select id="runAccueilEventSelect">'+eventSelectOptions(selectedRunContext.eventId)+'</select></label></div>';
     const ev=runEventObj();
     if(!ev){ box.innerHTML=html+'<div class="small">Choisissez un evenement.</div>'; const s=document.getElementById('runAccueilEventSelect'); if(s) s.addEventListener('change',e=>{ selectedRunContext.eventId=e.target.value; selectedRunContext.taskKey=''; renderRunAccueil(); }); return; }
-    const rimCodes=Object.keys(groupSetsByCode('rim')).sort();
-    html+='<p class="small">Cochez les <b>trains de pneus</b> et les <b>pilotes</b> qui participent a cet evenement. Seuls ces choix apparaitront ensuite dans les feuilles de run de l\'event (moins de choix).</p>';
+    html+='<p class="small">Ajoutez les <b>pneus</b> (via l\'inventaire) et cochez les <b>pilotes</b> participant a cet evenement. Seuls ces choix apparaitront ensuite dans les feuilles de run de l\'event.</p>';
     html+='<div class="rs-assign-grid">';
-    html+='<div class="rs-assign-box"><h5>Trains de pneus</h5>'+(rimCodes.length?rimCodes.map(c=>'<label class="rs-check-row"><input type="checkbox" class="rsEvtTyre" value="'+esc(c)+'" '+(ev.tyreSets.indexOf(c)>=0?'checked':'')+'> '+c+'</label>').join(''):'<div class="small">Aucun train de jantes en stock.</div>')+'</div>';
+    html+='<div class="rs-assign-box"><h5>Pneus de l\'event</h5>'+
+      (ev.tyreSets.length ? '<div class="rs-chips">'+ev.tyreSets.map(c=>'<span class="rs-chip">'+tyreSetLabel(c)+' <button class="rs-chip-x" data-code="'+esc(c)+'" title="Retirer">&times;</button></span>').join('')+'</div>' : '<div class="small">Aucun pneu ajoute.</div>')+
+      '<button class="secondary" id="rsAddTyreBtn" style="margin-top:8px;">+ Ajouter des pneus</button></div>';
     html+='<div class="rs-assign-box"><h5>Pilotes de l\'event</h5>'+((STATE.drivers||[]).length?STATE.drivers.map(d=>'<label class="rs-check-row"><input type="checkbox" class="rsEvtDriver" value="'+esc(d.name)+'" '+(ev.drivers.indexOf(d.name)>=0?'checked':'')+'> <span class="driver-dot" style="background:'+(d.color||'#888')+';"></span> '+d.name+(d.category?' ('+d.category+')':'')+'</label>').join(''):'<div class="small">Aucun pilote (onglet Voiture &gt; Pilotes).</div>')+'</div>';
     html+='</div>';
     box.innerHTML=html;
     const evSel=document.getElementById('runAccueilEventSelect');
     if(evSel) evSel.addEventListener('change', e=>{ selectedRunContext.eventId=e.target.value; selectedRunContext.taskKey=''; renderRunAccueil(); });
-    box.querySelectorAll('.rsEvtTyre').forEach(cb=>cb.addEventListener('change', e=>{ toggleInArray(ev.tyreSets, e.target.value, e.target.checked); saveState(); }));
     box.querySelectorAll('.rsEvtDriver').forEach(cb=>cb.addEventListener('change', e=>{ toggleInArray(ev.drivers, e.target.value, e.target.checked); saveState(); }));
+    box.querySelectorAll('.rs-chip-x').forEach(btn=>btn.addEventListener('click', ()=>{ toggleInArray(ev.tyreSets, btn.dataset.code, false); saveState(); renderRunAccueil(); }));
+    const addTyreBtn=box.querySelector('#rsAddTyreBtn');
+    if(addTyreBtn) addTyreBtn.addEventListener('click', ()=>openTyrePickerModal(ev));
+  }
+  function openTyrePickerModal(ev){
+    const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const codes=Object.keys(groupSetsByCode('tyre')).sort();
+    const overlay=document.createElement('div'); overlay.className='rs-modal-overlay';
+    overlay.innerHTML='<div class="rs-modal"><div class="rs-modal-head"><b>Inventaire pneus — cocher pour ajouter a l\'event</b><button class="modal-close" id="rsTyreClose">&times;</button></div>'+
+      '<div class="rs-modal-body">'+(codes.length?codes.map(c=>'<label class="rs-check-row"><input type="checkbox" class="rsPickTyre" value="'+esc(c)+'" '+(ev.tyreSets.indexOf(c)>=0?'checked':'')+'> '+tyreSetLabel(c)+'</label>').join(''):'<div class="small">Aucun set de pneus en stock (onglet Voiture &gt; Stock &gt; Pneus).</div>')+'</div>'+
+      '<div class="rs-modal-foot"><button class="primary" id="rsTyreOk">Valider</button></div></div>';
+    document.body.appendChild(overlay);
+    const close=()=>overlay.remove();
+    overlay.querySelector('#rsTyreClose').onclick=close;
+    overlay.addEventListener('click', e=>{ if(e.target===overlay) close(); });
+    overlay.querySelector('#rsTyreOk').onclick=()=>{ ev.tyreSets=Array.from(overlay.querySelectorAll('.rsPickTyre:checked')).map(cb=>cb.value); saveState(); close(); renderRunAccueil(); };
   }
   function showRunSub(which){
     document.querySelectorAll('#runSubtabs button').forEach(b=>b.classList.toggle('active', b.dataset.rsub===which));
