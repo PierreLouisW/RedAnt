@@ -1118,6 +1118,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!data.setupData || typeof data.setupData!=='object') data.setupData = {};
     if(!Array.isArray(data.setupSnapshots)) data.setupSnapshots = [];
     if(typeof data.setupPassword!=='string') data.setupPassword = '';
+    // Mot de passe Setup retire (acces gere plus tard par utilisateur) : on efface l'existant une fois
+    if(!data.setupPasswordCleared){ data.setupPassword = ''; data.setupPasswordCleared = true; }
     return data;
   }
 
@@ -4353,11 +4355,6 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function renderSetupTabPage(){
     const card = document.getElementById('setupTabCard');
     if(!card) return;
-    if(STATE.setupPassword && !setupUnlocked){
-      card.innerHTML = renderSetupLockScreen();
-      wireSetupLockScreen();
-      return;
-    }
     card.innerHTML =
       '<div class="measure-context-row">'+
         '<label>Evenement <select id="setupEventSelect">'+eventSelectOptions(selectedSetupContext.eventId)+'</select></label>'+
@@ -4505,35 +4502,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     alert('Setdown enregistre dans l\'historique. Comparez-le dans l\'onglet Setup.');
   }
 
-  function renderSetupLockScreen(){
-    return '<div class="setup-lock">'+
-      '<p class="small">Ce contenu (Setup) est protege par mot de passe.</p>'+
-      '<div class="row"><div><label>Mot de passe</label><input type="password" id="setupPasswordInput"></div>'+
-      '<div style="align-self:flex-end;"><button class="secondary" id="setupUnlockBtn">Deverrouiller</button></div></div>'+
-      '<div class="small" id="setupPasswordError" style="color:var(--due2);"></div>'+
-    '</div>';
-  }
-
-  function wireSetupLockScreen(){
-    const btn = document.getElementById('setupUnlockBtn');
-    const inp = document.getElementById('setupPasswordInput');
-    const tryUnlock = ()=>{
-      if(inp.value === STATE.setupPassword){ setupUnlocked = true; renderSetupTabPage(); }
-      else { const err = document.getElementById('setupPasswordError'); if(err) err.textContent = 'Mot de passe incorrect.'; }
-    };
-    if(btn) btn.addEventListener('click', tryUnlock);
-    if(inp) inp.addEventListener('keydown', (e)=>{ if(e.key==='Enter') tryUnlock(); });
-  }
-
   function renderSetupSubNav(){
     const views = [{key:'edit', label:'Editer'}, {key:'history', label:'Historique'}, {key:'compare', label:'Comparer'}];
     let html = '<div class="subtabs" id="setupSubTabs">'+
       views.map(v=>'<button data-view="'+v.key+'" class="'+(activeSetupView===v.key?'active':'')+'">'+v.label+'</button>').join('')+
-    '</div>';
-    html += '<div class="row" style="margin-top:8px;">'+
-      '<div><label>Mot de passe setup</label><input type="password" id="setupPasswordSetInput" placeholder="'+(STATE.setupPassword?'(deja defini)':'(aucun pour le moment)')+'"></div>'+
-      '<div style="align-self:flex-end;"><button class="secondary" id="setupSetPasswordBtn">Definir / changer</button></div>'+
-      (STATE.setupPassword ? '<div style="align-self:flex-end;"><button class="secondary" id="setupRemovePasswordBtn">Retirer le mot de passe</button></div>' : '')+
     '</div>';
     return html;
   }
@@ -4545,21 +4517,6 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         document.querySelectorAll('#setupSubTabs button').forEach(b=>b.classList.toggle('active', b===btn));
         renderSetupSubContent();
       });
-    });
-    const setBtn = document.getElementById('setupSetPasswordBtn');
-    if(setBtn) setBtn.addEventListener('click', ()=>{
-      const val = document.getElementById('setupPasswordSetInput').value;
-      if(!val){ alert('Entrez un mot de passe.'); return; }
-      STATE.setupPassword = val;
-      setupUnlocked = true;
-      saveState();
-    });
-    const rmBtn = document.getElementById('setupRemovePasswordBtn');
-    if(rmBtn) rmBtn.addEventListener('click', ()=>{
-      if(confirm('Retirer la protection par mot de passe du Setup ?')){
-        STATE.setupPassword = '';
-        saveState();
-      }
     });
   }
 
