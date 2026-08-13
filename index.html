@@ -434,7 +434,7 @@ body.auth-locked #authGate{ display:flex; }
   <button data-tab="voiture">Voiture</button>
   <button data-tab="historique">Historique</button>
   <button data-tab="setup">Setup</button>
-  <button data-tab="calendar">Calendrier MLMC</button>
+  <button data-tab="calendar">Calendrier</button>
   <button data-tab="io">Import / Export</button>
 </nav>
 
@@ -3844,7 +3844,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const ev = (STATE.mlmcEvents||[]).find(e=>String(e.id)===String(eventId));
     if(!ev) return '<option value="">(choisissez d\'abord un evenement)</option>';
     const tasks = (ev.tasks || []).filter(t=>t.isOfficialSession);
-    if(!tasks.length) return '<option value="">(aucune session officielle dans cet evenement - cochez "Officielle" sur une tache dans Calendrier MLMC)</option>';
+    if(!tasks.length) return '<option value="">(aucune session officielle dans cet evenement - cochez "Officielle" sur une tache dans Calendrier)</option>';
     let opts = '<option value="">(choisir une tache)</option>';
     tasks.slice().sort((a,b)=> a.date===b.date ? (a.startTime||'').localeCompare(b.startTime||'') : (a.date<b.date?-1:1)).forEach(t=>{
       const key = eventId+'::'+t.id;
