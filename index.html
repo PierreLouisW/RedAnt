@@ -234,6 +234,10 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-auto{font-weight:700;color:var(--text);}
 .rs-laps td.rs-fuel{font-weight:600;color:var(--accent);}
 .rs-lap-del{background:transparent;border:none;color:var(--due2);cursor:pointer;font-size:15px;}
+.rs-tyre-table{margin-top:8px;}
+.rs-tyre-table select{width:100%;padding:3px 4px;font-size:12px;background:transparent;border:1px solid transparent;}
+.rs-tyre-table select:focus{background:var(--panel2);border-color:var(--border);}
+.rs-tyre-del{background:transparent;border:none;color:var(--due2);cursor:pointer;font-size:15px;}
 .rs-comments{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px;}
 @media (max-width:760px){.rs-comments{grid-template-columns:1fr;}}
 .rs-comments textarea{width:100%;min-height:130px;padding:8px 10px;font-size:12px;resize:vertical;}
@@ -1151,6 +1155,20 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       if(!Array.isArray(ev.tasks)) ev.tasks = [];
       if(typeof ev.country!=='string') ev.country = '';
       if(!Array.isArray(ev.tyreSets)) ev.tyreSets = [];
+      // Migration : train de pneus = objet {code, name, mounted, rimSet, km, notes} (avant : simple code)
+      ev.tyreSets = ev.tyreSets.map(t=>{
+        if(t && typeof t==='object'){
+          if(typeof t.code!=='string') t.code=String(t.code||'');
+          if(typeof t.name!=='string') t.name='';
+          if(typeof t.mounted!=='boolean') t.mounted=false;
+          if(typeof t.rimSet!=='string') t.rimSet='';
+          if(!t.km || typeof t.km!=='object') t.km={fl:'',fr:'',rl:'',rr:''};
+          ['fl','fr','rl','rr'].forEach(k=>{ if(typeof t.km[k]!=='string') t.km[k]=(t.km[k]==null?'':String(t.km[k])); });
+          if(typeof t.notes!=='string') t.notes='';
+          return t;
+        }
+        return {code:String(t||''), name:'', mounted:false, rimSet:'', km:{fl:'',fr:'',rl:'',rr:''}, notes:''};
+      });
       if(!Array.isArray(ev.drivers)) ev.drivers = [];
       ev.tasks.forEach(t=>{
         if(typeof t.date!=='string' || !t.date) t.date = ev.date;
@@ -3402,7 +3420,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const nm = (items[0] && items[0].extra && items[0].extra.tyreName) || '';
     return code+(comp?' ['+comp+']':'')+(nm?' - '+nm:'');
   }
-  function runTyreSetCodes(){ const ev=runEventObj(); const all=Object.keys(groupSetsByCode('tyre')).sort(); return (ev && ev.tyreSets && ev.tyreSets.length) ? ev.tyreSets.filter(c=>all.indexOf(c)>=0) : all; }
+  function runTyreSetCodes(){ const ev=runEventObj(); const all=Object.keys(groupSetsByCode('tyre')).sort(); return (ev && ev.tyreSets && ev.tyreSets.length) ? ev.tyreSets.map(t=>t.code).filter(c=>all.indexOf(c)>=0) : all; }
   function runDriverOptions(sel){
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
     const ev=runEventObj();
@@ -3422,8 +3440,23 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!ev){ box.innerHTML=html+'<div class="small">Choisissez un evenement.</div>'; const s=document.getElementById('runAccueilEventSelect'); if(s) s.addEventListener('change',e=>{ selectedRunContext.eventId=e.target.value; selectedRunContext.taskKey=''; renderRunAccueil(); }); return; }
     html+='<p class="small">Ajoutez les <b>pneus</b> (via l\'inventaire) et cochez les <b>pilotes</b> participant a cet evenement. Seuls ces choix apparaitront ensuite dans les feuilles de run de l\'event.</p>';
     html+='<div class="rs-assign-grid">';
+    const rimCodesA = Object.keys(groupSetsByCode('rim')).sort();
+    const rimOptsA = (sel)=>'<option value="">(aucun)</option>'+rimCodesA.map(c=>'<option value="'+esc(c)+'"'+(String(sel)===String(c)?' selected':'')+'>'+esc(c)+'</option>').join('')+((sel && rimCodesA.indexOf(sel)<0)?'<option value="'+esc(sel)+'" selected>'+esc(sel)+'</option>':'');
     html+='<div class="rs-assign-box"><h5>Pneus de l\'event</h5>'+
-      (ev.tyreSets.length ? '<div class="rs-chips">'+ev.tyreSets.map(c=>'<span class="rs-chip">'+tyreSetLabel(c)+' <button class="rs-chip-x" data-code="'+esc(c)+'" title="Retirer">&times;</button></span>').join('')+'</div>' : '<div class="small">Aucun pneu ajoute.</div>')+
+      (ev.tyreSets.length ?
+        '<div class="rs-laps-wrap"><table class="rs-laps rs-tyre-table"><thead><tr><th>Nom</th><th>Monte</th><th>Set jante</th><th>Km FL</th><th>Km FR</th><th>Km RL</th><th>Km RR</th><th>Notes</th><th></th></tr></thead><tbody>'+
+        ev.tyreSets.map((t,i)=>'<tr data-i="'+i+'">'+
+          '<td style="text-align:left;font-weight:600;">'+esc(tyreSetLabel(t.code))+'</td>'+
+          '<td><input type="checkbox" class="rsTyreMounted" data-i="'+i+'" '+(t.mounted?'checked':'')+'></td>'+
+          '<td><select class="rsTyreF" data-i="'+i+'" data-f="rimSet">'+rimOptsA(t.rimSet)+'</select></td>'+
+          '<td><input type="text" class="rsTyreKm" data-i="'+i+'" data-k="fl" value="'+esc(t.km.fl)+'" style="width:48px;"></td>'+
+          '<td><input type="text" class="rsTyreKm" data-i="'+i+'" data-k="fr" value="'+esc(t.km.fr)+'" style="width:48px;"></td>'+
+          '<td><input type="text" class="rsTyreKm" data-i="'+i+'" data-k="rl" value="'+esc(t.km.rl)+'" style="width:48px;"></td>'+
+          '<td><input type="text" class="rsTyreKm" data-i="'+i+'" data-k="rr" value="'+esc(t.km.rr)+'" style="width:48px;"></td>'+
+          '<td><input type="text" class="rsTyreF" data-i="'+i+'" data-f="notes" value="'+esc(t.notes||'')+'" style="min-width:100px;"></td>'+
+          '<td><button class="rs-tyre-del" data-i="'+i+'" title="Retirer">&times;</button></td>'+
+        '</tr>').join('')+'</tbody></table></div>'
+        : '<div class="small">Aucun pneu ajoute.</div>')+
       '<button class="secondary" id="rsAddTyreBtn" style="margin-top:8px;">+ Ajouter des pneus</button></div>';
     html+='<div class="rs-assign-box"><h5>Pilotes de l\'event</h5>'+((STATE.drivers||[]).length?STATE.drivers.map(d=>'<label class="rs-check-row"><input type="checkbox" class="rsEvtDriver" value="'+esc(d.name)+'" '+(ev.drivers.indexOf(d.name)>=0?'checked':'')+'> <span class="driver-dot" style="background:'+(d.color||'#888')+';"></span> '+d.name+(d.category?' ('+d.category+')':'')+'</label>').join(''):'<div class="small">Aucun pilote (onglet Voiture &gt; Pilotes).</div>')+'</div>';
     html+='</div>';
@@ -3450,7 +3483,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     box.querySelectorAll('.rsEvtDriver').forEach(cb=>cb.addEventListener('change', e=>{ toggleInArray(ev.drivers, e.target.value, e.target.checked); saveState(); renderRunAccueil(); }));
     box.querySelectorAll('.rsRefCond').forEach(inp=>inp.addEventListener('change', e=>{ const c=e.target.dataset.cond; ev.refConditions[c]=ev.refConditions[c]||{}; ev.refConditions[c][e.target.dataset.f]=e.target.value; saveState(); }));
     box.querySelectorAll('.rsRefDriver').forEach(inp=>inp.addEventListener('change', e=>{ const n=e.target.dataset.driver; ev.refDrivers[n]=ev.refDrivers[n]||{}; ev.refDrivers[n][e.target.dataset.f]=e.target.value; saveState(); }));
-    box.querySelectorAll('.rs-chip-x').forEach(btn=>btn.addEventListener('click', ()=>{ toggleInArray(ev.tyreSets, btn.dataset.code, false); saveState(); renderRunAccueil(); }));
+    box.querySelectorAll('.rsTyreF').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); if(ev.tyreSets[i]) ev.tyreSets[i][e.target.dataset.f]=e.target.value; saveState(); }));
+    box.querySelectorAll('.rsTyreMounted').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); if(ev.tyreSets[i]) ev.tyreSets[i].mounted=e.target.checked; saveState(); }));
+    box.querySelectorAll('.rsTyreKm').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); if(ev.tyreSets[i]) ev.tyreSets[i].km[e.target.dataset.k]=e.target.value; saveState(); }));
+    box.querySelectorAll('.rs-tyre-del').forEach(btn=>btn.addEventListener('click', ()=>{ ev.tyreSets.splice(Number(btn.dataset.i),1); saveState(); renderRunAccueil(); }));
     const addTyreBtn=box.querySelector('#rsAddTyreBtn');
     if(addTyreBtn) addTyreBtn.addEventListener('click', ()=>openTyrePickerModal(ev));
   }
@@ -3459,13 +3495,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const codes=Object.keys(groupSetsByCode('tyre')).sort();
     const overlay=document.createElement('div'); overlay.className='rs-modal-overlay';
     overlay.innerHTML='<div class="rs-modal"><div class="rs-modal-head"><b>Inventaire pneus — cocher pour ajouter a l\'event</b><button class="modal-close" id="rsTyreClose">&times;</button></div>'+
-      '<div class="rs-modal-body">'+(codes.length?codes.map(c=>'<label class="rs-check-row"><input type="checkbox" class="rsPickTyre" value="'+esc(c)+'" '+(ev.tyreSets.indexOf(c)>=0?'checked':'')+'> '+tyreSetLabel(c)+'</label>').join(''):'<div class="small">Aucun set de pneus en stock (onglet Voiture &gt; Stock &gt; Pneus).</div>')+'</div>'+
+      '<div class="rs-modal-body">'+(codes.length?codes.map(c=>'<label class="rs-check-row"><input type="checkbox" class="rsPickTyre" value="'+esc(c)+'" '+(ev.tyreSets.some(t=>t.code===c)?'checked':'')+'> '+tyreSetLabel(c)+'</label>').join(''):'<div class="small">Aucun set de pneus en stock (onglet Voiture &gt; Stock &gt; Pneus).</div>')+'</div>'+
       '<div class="rs-modal-foot"><button class="primary" id="rsTyreOk">Valider</button></div></div>';
     document.body.appendChild(overlay);
     const close=()=>overlay.remove();
     overlay.querySelector('#rsTyreClose').onclick=close;
     overlay.addEventListener('click', e=>{ if(e.target===overlay) close(); });
-    overlay.querySelector('#rsTyreOk').onclick=()=>{ ev.tyreSets=Array.from(overlay.querySelectorAll('.rsPickTyre:checked')).map(cb=>cb.value); saveState(); close(); renderRunAccueil(); };
+    overlay.querySelector('#rsTyreOk').onclick=()=>{ const chosen=Array.from(overlay.querySelectorAll('.rsPickTyre:checked')).map(cb=>cb.value); ev.tyreSets=chosen.map(code=>{ const ex=ev.tyreSets.find(t=>t.code===code); return ex || {code:code, name:'', mounted:false, rimSet:'', km:{fl:'',fr:'',rl:'',rr:''}, notes:''}; }); saveState(); close(); renderRunAccueil(); };
   }
   function showRunSub(which){
     document.querySelectorAll('#runSubtabs button').forEach(b=>b.classList.toggle('active', b.dataset.rsub===which));
