@@ -6447,10 +6447,24 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function renderTodoTab(){
     const evtSel = document.getElementById('todoEventSelect');
     if(!evtSel) return;
-    evtSel.innerHTML = eventSelectOptions(selectedTodoContext.eventId);
     const taskSel = document.getElementById('todoTaskSelect');
-    taskSel.innerHTML = todoTaskSelectOptions(selectedTodoContext.eventId, selectedTodoContext.taskKey);
-    if(taskSel.value !== selectedTodoContext.taskKey) selectedTodoContext.taskKey = taskSel.value;
+    // Acces restreint (mecanos) : verrouille sur la prochaine session officielle, pas de navigation vers les sessions/events precedents
+    const restricted = !isEngineer();
+    if(restricted){
+      const next = findNextOfficialSessionDT();
+      if(next){ selectedTodoContext.eventId=String(next.ev.id); selectedTodoContext.taskKey=next.ev.id+'::'+next.t.id; }
+      const ev=(STATE.mlmcEvents||[]).find(e=>String(e.id)===String(selectedTodoContext.eventId));
+      const found=findTodoTask(selectedTodoContext.taskKey);
+      const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+      evtSel.innerHTML = '<option>'+(ev?esc(fmtDate(ev.date)+' - '+ev.label):'Aucune session a venir')+'</option>';
+      taskSel.innerHTML = '<option>'+(found?esc(found.task.text):'-')+'</option>';
+      evtSel.disabled = true; taskSel.disabled = true;
+    } else {
+      evtSel.disabled = false; taskSel.disabled = false;
+      evtSel.innerHTML = eventSelectOptions(selectedTodoContext.eventId);
+      taskSel.innerHTML = todoTaskSelectOptions(selectedTodoContext.eventId, selectedTodoContext.taskKey);
+      if(taskSel.value !== selectedTodoContext.taskKey) selectedTodoContext.taskKey = taskSel.value;
+    }
     const realSess = findRealSessionForTodoTask(selectedTodoContext.taskKey);
     const info = document.getElementById('todoSessionInfo');
     if(info) info.textContent = realSess
