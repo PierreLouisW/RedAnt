@@ -4099,6 +4099,18 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     }
     return null;
   }
+  // complete le champ vide (rhChassis <-> pushLength) a partir de l'autre, pour tout un objet corners
+  function backfillRhConversion(cornersObj){
+    if(!cornersObj) return;
+    SETUP_CORNERS.forEach(c=>{
+      const cc = cornersObj[c.key]; if(!cc) return;
+      const axle = rhAxleForCorner(c.key);
+      const chassis = String(cc.rhChassis==null?'':cc.rhChassis).trim();
+      const meas = String(cc.pushLength==null?'':cc.pushLength).trim();
+      if(chassis!=='' && meas===''){ const m=rhChassisToMeasure(axle, chassis); if(m!=null) cc.pushLength=fmtParamNum(m); }
+      else if(meas!=='' && chassis===''){ const ch=rhMeasureToChassis(axle, meas); if(ch!=null) cc.rhChassis=fmtParamNum(ch); }
+    });
+  }
   // valeurs disponibles definies pour un parametre (liste deroulante), sinon null
   function setupParamOpts(key){
     const o = STATE.setupParamOptions && STATE.setupParamOptions[key];
@@ -4213,6 +4225,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     SETUP_SHARED_FIELDS.forEach(f=>{ if(e.readings.shared[f.key]==null) e.readings.shared[f.key]=''; });
     if(!e.readings.weights) e.readings.weights = {};
     SETUP_WEIGHTS_FIELDS.forEach(f=>{ if(e.readings.weights[f.key]==null) e.readings.weights[f.key]=''; });
+    // Complete automatiquement RH measurement depuis RH chassis (et inversement), target + releve
+    backfillRhConversion(e.corners);
+    backfillRhConversion(e.readings.corners);
     return e;
   }
   // le relevé mécano diffère de la target (colore la case) : non vide et != target
