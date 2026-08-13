@@ -1164,8 +1164,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(typeof data.setupPassword!=='string') data.setupPassword = '';
     // Mot de passe Setup retire (acces gere plus tard par utilisateur) : on efface l'existant une fois
     if(!data.setupPasswordCleared){ data.setupPassword = ''; data.setupPasswordCleared = true; }
-    // Recopie automatique gauche->droite des reglages de roue (decochable pour l'asymetrie)
-    if(typeof data.setupLinkLR!=='boolean') data.setupLinkLR = true;
+    // Recopie automatique gauche->droite des reglages de roue (off par defaut ; a cocher au besoin)
+    if(typeof data.setupLinkLR!=='boolean') data.setupLinkLR = false;
     // Valeurs disponibles par parametre (listes deroulantes dans le setup) : { fieldKey: [valeurs] }
     if(!data.setupParamOptions || typeof data.setupParamOptions!=='object') data.setupParamOptions = {};
     // Exemple prerempli (anti roll bar diameter) - modifiable dans l'onglet Parametres
@@ -1186,6 +1186,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!data.rhConversionPreset){
       if(!data.rhConversion.front.length) data.rhConversion.front = [{c:'51.5',m:'128.5'},{c:'52.64',m:'127.36'}];
       data.rhConversionPreset = true;
+    }
+    // Rear : RH measurement = 192 - RH chassis (d'apres le fichier rh_converter)
+    if(!data.rhConversionRearPreset){
+      if(!data.rhConversion.rear.length) data.rhConversion.rear = [{c:'50',m:'142'},{c:'70',m:'122'}];
+      data.rhConversionRearPreset = true;
     }
     return data;
   }
