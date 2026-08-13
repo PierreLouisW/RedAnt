@@ -28,7 +28,7 @@ nav.tabs{display:flex;gap:4px;padding:10px 24px 0;background:linear-gradient(180
 nav.tabs button{background:transparent;border:none;color:rgba(255,255,255,.82);padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:2px solid transparent;transition:color .12s;}
 nav.tabs button:hover{color:#fff;}
 nav.tabs button.active{color:#fff;font-weight:600;border-bottom:2px solid #fff;}
-section.tab{display:none;padding:20px 24px;max-width:1200px;margin:0 auto;}
+section.tab{display:none;padding:20px 24px;max-width:1680px;margin:0 auto;}
 section.tab.active{display:block;}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;}
 label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;margin-top:10px;}
@@ -215,6 +215,9 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-box{border:1px solid var(--border);border-radius:8px;background:var(--panel2);padding:10px 12px;}
 .rs-box h5{margin:0 0 8px;font-size:12px;color:var(--accent);text-transform:uppercase;letter-spacing:.4px;}
 .rs-cond-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 12px;}
+.rs-run-header{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;margin-bottom:8px;}
+.rs-run-badge{background:var(--accent);color:#fff;font-size:12px;font-weight:700;padding:4px 12px;border-radius:6px;white-space:nowrap;}
+.rs-run-header input{flex:1;margin:0;font-size:14px;}
 .rs-cond-block{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:8px;margin-bottom:12px;}
 .rs-cb-col h6{margin:0 0 6px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--accent);}
 .rs-cb-col .rs-field{margin-bottom:4px;}
@@ -3432,9 +3435,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const trackmapCol = (ev && ev.trackmapImg)
       ? '<img src="'+ev.trackmapImg+'" class="rs-trackmap-img" alt="trackmap"><button class="secondary" id="rsTrackmapDel" style="margin-top:6px;font-size:11px;padding:2px 8px;">Retirer</button>'
       : '<label class="rs-trackmap-drop"><input type="file" accept="image/*" id="rsTrackmapInput" style="display:none;">Importer une image du tracé</label>';
-    const condBlock = '<div class="rs-cond-block">'+
+    const runHeaderCol = driverByName(st.driver);
+    const runHeader = '<div class="rs-run-header"><span class="rs-run-badge">Relais '+(r.activeStint+1)+'</span><span class="driver-dot" style="background:'+(runHeaderCol?runHeaderCol.color:'#888')+';"></span><input type="text" class="rsMetaInput" data-key="name" value="'+esc(st.name)+'" placeholder="Nom du run"></div>';
+    const condBlock = runHeader + '<div class="rs-cond-block">'+
       '<div class="rs-box rs-cb-col"><h6>Run</h6>'+
-        '<div class="rs-field"><label>Nom du run</label><input type="text" class="rsMetaInput" data-key="name" value="'+esc(st.name)+'"></div>'+
         '<div class="rs-field"><label>Pilote</label><select class="rsMetaInput" data-key="driver">'+runDriverOptions(st.driver)+'</select></div>'+
         '<div class="rs-field"><label>Heure</label><input type="text" class="rsMetaInput" data-key="startTime" value="'+esc(st.startTime)+'" placeholder="HH:MM:SS"></div>'+
         '<div class="rs-field"><label>Setup</label><select class="rsMetaInput" data-key="setupId">'+snapOpts+'</select></div>'+
