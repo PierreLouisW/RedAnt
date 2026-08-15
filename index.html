@@ -1524,30 +1524,78 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
 
   /* =========================================================
-     SUPABASE - utilise UNIQUEMENT pour une migration ponctuelle :
-     recuperer une derniere fois les donnees actuellement partagees,
-     puis l'app repasse definitivement en local (plus aucune connexion
-     au compte partage, plus d'ecran de connexion par la suite).
+     SUPABASE - base de donnees equipe + cache hors-ligne
      ========================================================= */
-  const LOCAL_MODE_KEY = 'mileage_state_p3366_local_mode_v1';
-  const alreadyLocal = !!localStorage.getItem(LOCAL_MODE_KEY);
+  const SUPABASE_URL = 'https://vorsdfttpkfwvhquyhra.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_q80ZCMmxnrJHg7_QaWUy8Q_HLuoCSw8';
+  const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  // Une fois passe en local, on ne cree meme plus le client Supabase :
-  // aucune dependance reseau au compte partage n'est plus necessaire.
-  let sbClient = null;
-  if(!alreadyLocal){
-    try{
-      const SUPABASE_URL = 'https://vorsdfttpkfwvhquyhra.supabase.co';
-      const SUPABASE_ANON_KEY = 'sb_publishable_q80ZCMmxnrJHg7_QaWUy8Q_HLuoCSw8';
-      sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    }catch(e){ sbClient = null; }
+  const OFFLINE_CACHE_KEY = 'mileage_state_p3366_cloud_cache_v1';
+  const PENDING_SYNC_KEY = 'mileage_state_p3366_pending_sync_v1';
+
+  async function cloudGet(){
+    if(navigator.onLine){
+      try{
+        const { data, error } = await sbClient
+          .from('app_state').select('data').eq('id','main').single();
+        if(error) throw error;
+        if(data && data.data){
+          const json = JSON.stringify(data.data);
+          localStorage.setItem(OFFLINE_CACHE_KEY, json);
+          return { value: json };
+        }
+      }catch(e){ /* on retombe sur le cache local ci-dessous */ }
+    }
+    const cached = localStorage.getItem(OFFLINE_CACHE_KEY);
+    if(cached) return { value: cached };
+    return null;
   }
 
+  async function cloudSet(json){
+    localStorage.setItem(OFFLINE_CACHE_KEY, json); // toujours ecrit localement, meme hors-ligne
+    if(!navigator.onLine){
+      localStorage.setItem(PENDING_SYNC_KEY, json);
+      throw new Error('offline');
+    }
+    const parsed = JSON.parse(json);
+    const { error } = await sbClient.from('app_state')
+      .update({ data: parsed, rev: parsed._rev||0, updated_at: new Date().toISOString() })
+      .eq('id','main');
+    if(error){
+      localStorage.setItem(PENDING_SYNC_KEY, json);
+      throw error;
+    }
+    localStorage.removeItem(PENDING_SYNC_KEY);
+  }
+
+  window.storage = {
+    async get(key, shared){ return cloudGet(); },
+    async set(key, value, shared){ return cloudSet(value); }
+  };
+
+  async function flushPendingSync(){
+    const pending = localStorage.getItem(PENDING_SYNC_KEY);
+    if(!pending) return;
+    try{ await cloudSet(pending); setSyncStatus('ok'); }
+    catch(e){ /* on reessaiera plus tard */ }
+  }
+
+  window.addEventListener('online', ()=>{ setSyncStatus('syncing'); flushPendingSync(); });
+  window.addEventListener('offline', ()=>{ setSyncStatus('offline'); });
+
   /* =========================================================
-     AUTHENTIFICATION - ecran de connexion affiche UNE SEULE FOIS
-     (le temps de recuperer les donnees partagees), puis jamais plus.
+     AUTHENTIFICATION - acces reserve a l'equipe
      ========================================================= */
   let CURRENT_EMAIL = '';
+  function renderUserBadge(email){
+    CURRENT_EMAIL = email || '';
+    const el = document.getElementById('userBadge');
+    if(!el) return;
+    el.innerHTML = (email ? '<span>'+email+'</span>' : '') + '<button id="logoutBtn">Deconnexion</button>';
+    const btn = document.getElementById('logoutBtn');
+    if(btn) btn.onclick = async ()=>{ await sbClient.auth.signOut(); document.body.classList.add('auth-locked'); };
+    applyRoleVisibility();
+  }
   // Acces reserve : seuls les emails "ingenieur" voient Setup et Run Sheet (liste vide = tout le monde)
   function isEngineer(){
     const list = (typeof STATE!=='undefined' && STATE && Array.isArray(STATE.engineerEmails)) ? STATE.engineerEmails : [];
@@ -1565,11 +1613,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
 
   async function checkAuth(){
-    if(!sbClient){ document.body.classList.add('auth-locked'); return false; }
     try{
       const { data: { session } } = await sbClient.auth.getSession();
       if(session && session.user){
         document.body.classList.remove('auth-locked');
+        renderUserBadge(session.user.email);
         return true;
       }
     }catch(e){ /* pas de session, on reste sur l'ecran de connexion */ }
@@ -1581,7 +1629,6 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   if(authForm){
     authForm.addEventListener('submit', async (e)=>{
       e.preventDefault();
-      if(!sbClient) return;
       const email = document.getElementById('authEmail').value.trim();
       const pass = document.getElementById('authPass').value;
       const errEl = document.getElementById('authError');
@@ -1592,7 +1639,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       try{
         const { error } = await sbClient.auth.signInWithPassword({ email, password: pass });
         if(error) throw error;
-        // la suite (recuperation des donnees puis passage en local) est geree par onAuthStateChange
+        // document.body.classList.remove('auth-locked') et init() sont geres par onAuthStateChange
       }catch(err){
         errEl.textContent = 'Identifiants incorrects ou compte non autorise.';
       }finally{
@@ -1602,26 +1649,16 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     });
   }
 
-  // Migration ponctuelle : recupere UNE SEULE FOIS les donnees actuellement partagees,
-  // les enregistre en local, puis coupe definitivement la connexion au compte partage.
-  async function migrateSharedStateToLocalOnce(){
-    if(sbClient){
-      try{
-        const { data, error } = await sbClient.from('app_state').select('data').eq('id','main').single();
-        if(!error && data && data.data){
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(data.data));
-        }
-      }catch(e){ /* pas de donnees recuperables, on demarrera depuis le snapshot embarque */ }
-    }
-    localStorage.setItem(LOCAL_MODE_KEY, '1');
-    if(sbClient){
-      try{ await sbClient.auth.signOut(); }catch(e){ /* rien a faire */ }
-    }
-  }
-
-  const hasSharedStorage = false;
+  const hasSharedStorage = true;
 
   async function loadState(){
+    if(hasSharedStorage){
+      try{
+        const res = await window.storage.get('state', true);
+        if(res && res.value) return normalizeState(JSON.parse(res.value));
+      }catch(e){ /* pas encore de donnees partagees */ }
+      return normalizeState(deepClone(SEED));
+    }
     const saved = localStorage.getItem(STORAGE_KEY);
     if(saved){
       try{ return normalizeState(JSON.parse(saved)); }catch(e){ console.warn('state corrompu, reinit', e); }
@@ -1643,11 +1680,29 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   let persistDebounceTimer = null;
   let persistPending = false;
 
-  function persistStateNow(){
+  async function persistStateNow(attempt){
+    attempt = attempt || 1;
     STATE.lastUpdate = new Date().toISOString();
     STATE._rev = (STATE._rev||0) + 1;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE));
-    setSyncStatus('local');
+    const json = JSON.stringify(STATE);
+    if(hasSharedStorage){
+      setSyncStatus('syncing');
+      try{
+        await window.storage.set('state', json, true);
+        setSyncStatus('ok');
+      }catch(e){
+        if(attempt < 4){
+          const delay = attempt * 1500;
+          setTimeout(()=>{ persistStateNow(attempt+1); }, delay);
+        } else {
+          console.warn('Synchronisation impossible pour le moment, nouvelle tentative au prochain changement.', e && e.message);
+          setSyncStatus('error');
+        }
+      }
+    } else {
+      localStorage.setItem(STORAGE_KEY, json);
+      setSyncStatus('local');
+    }
   }
 
   function persistState(){
@@ -1655,13 +1710,31 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(persistDebounceTimer) clearTimeout(persistDebounceTimer);
     persistDebounceTimer = setTimeout(()=>{
       persistDebounceTimer = null;
-      if(persistPending){ persistPending = false; persistStateNow(); }
+      if(persistPending){ persistPending = false; persistStateNow(1); }
     }, 700);
   }
 
   function saveState(){
     renderAll();
     persistState();
+  }
+
+  async function pullRemoteState(){
+    if(!hasSharedStorage) return;
+    const active = document.activeElement;
+    const isEditing = active && ['INPUT','SELECT','TEXTAREA'].includes(active.tagName);
+    if(isEditing) return;
+    try{
+      const res = await window.storage.get('state', true);
+      if(res && res.value){
+        const remote = normalizeState(JSON.parse(res.value));
+        if((remote._rev||0) > (STATE._rev||0)){
+          STATE = remote;
+          renderAll();
+          setSyncStatus('ok');
+        }
+      }
+    }catch(e){ /* rien a recuperer */ }
   }
 
   // STATE est peuple de facon asynchrone par init() en bas du script
@@ -4377,6 +4450,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function renderSessionClock(){
     const box = document.getElementById('homeSessionClock');
     if(!box) return;
+    // L'horloge tourne des le chargement du script, mais STATE n'arrive qu'apres
+    // l'authentification et la lecture du state partage : tant qu'on est sur
+    // l'ecran de connexion, il n'y a rien a afficher.
+    if(!STATE) return;
     const upcoming = findUpcomingOfficialSessions(effectiveHomeEventId());
     const next = upcoming[0] || null;
     renderHomeNextUpcoming(upcoming[1] || null);
@@ -7464,38 +7541,26 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   async function init(){
     if(appStarted) return;
     appStarted = true;
-    setSyncStatus('local');
+    setSyncStatus(navigator.onLine ? 'syncing' : 'offline');
     STATE = await loadState();
     renderAll();
-    setSyncStatus('local');
+    setSyncStatus(navigator.onLine ? 'ok' : 'offline');
+    setInterval(pullRemoteState, 15000);
+    flushPendingSync();
   }
 
-  async function bootstrap(){
-    if(alreadyLocal || !sbClient){
-      // deja passe en local sur ce navigateur (ou SDK partage indisponible) :
-      // on demarre directement, sans jamais contacter le compte partage.
-      if(!alreadyLocal) localStorage.setItem(LOCAL_MODE_KEY, '1');
+  sbClient.auth.onAuthStateChange((event, session)=>{
+    if(event === 'SIGNED_IN' && session){
       document.body.classList.remove('auth-locked');
+      renderUserBadge(session.user.email);
       init();
-      return;
+    } else if(event === 'SIGNED_OUT'){
+      document.body.classList.add('auth-locked');
+      appStarted = false;
     }
-    // pas encore migre : ecran de connexion affiche une seule fois pour recuperer
-    // les donnees actuellement partagees, puis passage definitif en local.
-    sbClient.auth.onAuthStateChange(async (event, session)=>{
-      if(event === 'SIGNED_IN' && session && !localStorage.getItem(LOCAL_MODE_KEY)){
-        await migrateSharedStateToLocalOnce();
-        document.body.classList.remove('auth-locked');
-        init();
-      }
-    });
-    const ok = await checkAuth();
-    if(ok){
-      await migrateSharedStateToLocalOnce();
-      init();
-    }
-  }
+  });
 
-  bootstrap();
+  checkAuth().then(ok=>{ if(ok) init(); });
 
   if('serviceWorker' in navigator){
     window.addEventListener('load', ()=>{
