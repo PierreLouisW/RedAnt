@@ -4574,6 +4574,28 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   setInterval(renderSessionClock, 1000);
 
   // ---------- CALENDRIER MLMC ----------
+  // Supprime les donnees rattachees a des sessions qui viennent de disparaitre.
+  // Sans cela, runsheet / run plan / setup restent indefiniment dans l'etat
+  // PARTAGE sous une cle que plus rien ne reference : invisibles dans
+  // l'interface, mais relues, fusionnees et retransmises a chaque
+  // synchronisation de chaque poste de l'equipe.
+  // Volontairement limite aux donnees creees AUTOMATIQUEMENT par la session :
+  // les snapshots de setup (STATE.setupSnapshots) sont des enregistrements que
+  // l'utilisateur a nommes lui-meme et qui restent visibles dans
+  // Setup > Historique - a lui de decider de les supprimer.
+  // `predicate` recoit une cle de session ("<idEvent>::<idTache>").
+  function purgeSessionData(predicate){
+    let removed = 0;
+    ['runsheets','runPlans','setupData'].forEach(store=>{
+      const obj = STATE[store];
+      if(!obj || typeof obj!=='object') return;
+      Object.keys(obj).forEach(k=>{ if(predicate(k)){ delete obj[k]; removed++; } });
+    });
+    // Le pointeur de setup courant ne doit pas rester sur une session effacee :
+    // getSetupEntry recreerait sinon une entree vide sous l'ancienne cle.
+    if(STATE.currentSetupTaskKey && predicate(STATE.currentSetupTaskKey)) STATE.currentSetupTaskKey = '';
+    return removed;
+  }
   function renderCalendarTab(){
     const today = todayISO();
     const events = (STATE.mlmcEvents||[]).slice().sort((a,b)=> a.date<b.date?-1:1);
@@ -4631,7 +4653,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
     document.querySelectorAll('.cal-del[data-id]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
-        STATE.mlmcEvents = STATE.mlmcEvents.filter(e=>e.id!==Number(btn.dataset.id));
+        const evId = Number(btn.dataset.id);
+        STATE.mlmcEvents = STATE.mlmcEvents.filter(e=>e.id!==evId);
+        // Toutes les sessions de cet evenement disparaissent avec lui.
+        purgeSessionData(k=>String(k).split('::')[0]===String(evId));
         saveState();
       });
     });
@@ -4675,6 +4700,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         const ev = STATE.mlmcEvents.find(e=>e.id===Number(btn.dataset.ev));
         if(!ev) return;
         ev.tasks = (ev.tasks||[]).filter(t=>t.id!==Number(btn.dataset.task));
+        purgeSessionData(k=>k===btn.dataset.ev+'::'+btn.dataset.task);
         saveState();
       });
     });
