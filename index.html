@@ -1867,6 +1867,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       {key:'tyre', label:'Pneus'},
       {key:'brake', label:'Frein'},
       {key:'plank', label:'Planches'},
+      {key:'mecanique', label:'Mecanique'},
       {key:'other', label:'Autres pieces'}
     ];
     box.innerHTML = groups.map(g=>'<button data-group="'+g.key+'" class="'+(activeStockGroup===g.key?'active':'')+'">'+g.label+'</button>').join('');
@@ -1896,6 +1897,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       });
       return;
     }
+    // La mecanique n'a qu'une vue : c'est le catalogue de pieces du chassis
+    // (STATE.parts), suivi au km avec seuils de revision/remplacement - il n'y
+    // a ni inventaire de sets ni mesure d'epaisseur a lui proposer.
+    if(activeStockGroup==='mecanique'){ box.innerHTML=''; return; }
     const views = activeStockGroup==='brake'
       ? [{key:'assemblies', label:'Assemblages'}, {key:'inventory', label:'Inventaire'}, {key:'measures', label:'Mesures (usure)'}]
       : activeStockGroup==='tyre'
@@ -1920,6 +1925,15 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     });
     const searchRow = document.getElementById('stockSearchRow');
     searchRow.style.display = (activeStockView==='assemblies' || activeStockView==='measures') ? 'none' : '';
+    // Sous-onglet Mecanique : on liste les pieces du chassis (STATE.parts), pas
+    // des articles de stock. Le filtre de statut (Voiture/Atelier/Camion/Jetee)
+    // et le formulaire d'ajout d'article ne s'y appliquent pas - les laisser
+    // visibles laisserait croire qu'ils agissent sur cette liste.
+    const meca = activeStockGroup==='mecanique';
+    const statusFilterBox = searchRow.children[1];
+    if(statusFilterBox) statusFilterBox.style.display = meca ? 'none' : '';
+    const addPieceCard = document.getElementById('addPieceCard');
+    if(addPieceCard) addPieceCard.style.display = meca ? 'none' : '';
   }
 
   function groupSetsByCode(categoryKey){
@@ -2360,7 +2374,59 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       renderGenericTable(['plank'], true);
       return;
     }
+    if(activeStockGroup==='mecanique'){ renderMecaniqueTable(); return; }
     renderGenericTable(null);
+  }
+
+  // Sous-onglet Stock > Mecanique : le catalogue de pieces du chassis
+  // (STATE.parts), qui n'est inventorie nulle part ailleurs dans le Stock -
+  // les autres groupes portent sur des stockItems (trains de pneus, jantes,
+  // disques, plaquettes, cloches, planches), une collection differente.
+  // Reprend volontairement le visuel de "Etat des pieces" : memes colonnes et
+  // meme pastille de statut calculee par getStatus (seuils revision /
+  // remplacement en km), pour qu'on lise la mecanique de la meme facon des
+  // deux endroits. Le tri se fait par clic sur l'entete, comme la-bas.
+  function renderMecaniqueTable(){
+    const q = (document.getElementById('stockSearch').value||'').toLowerCase();
+    let list = STATE.parts.map(p=>({p, st:getStatus(p)}));
+    if(q){
+      list = list.filter(({p})=>
+        (p.internalCode||'').toLowerCase().includes(q) ||
+        (p.partNo||'').toLowerCase().includes(q) ||
+        (p.designation||'').toLowerCase().includes(q) ||
+        (p.position||'').toLowerCase().includes(q)
+      );
+    }
+    list.sort((a,b)=>{
+      let va=a.p[mecaniqueSort.key], vb=b.p[mecaniqueSort.key];
+      if(['mileage','review','replace'].includes(mecaniqueSort.key)){ va=Number(va)||0; vb=Number(vb)||0; }
+      else { va=(va||'').toString().toLowerCase(); vb=(vb||'').toString().toLowerCase(); }
+      if(va<vb) return -1*mecaniqueSort.dir; if(va>vb) return 1*mecaniqueSort.dir; return 0;
+    });
+    const cols = [
+      ['internalCode','Code'], ['partNo','Part No.'], ['designation','Designation'],
+      ['position','Position'], ['mileage','Km'], ['review','Revision'],
+      ['replace','Remplacement'], ['lastChangedDate','Dernier changement']
+    ];
+    document.getElementById('stockTableHead').innerHTML =
+      cols.map(([k,lbl])=>'<th class="mecaSortTh" data-k="'+k+'" style="cursor:pointer;">'+lbl+
+        (mecaniqueSort.key===k ? (mecaniqueSort.dir===1?' ▲':' ▼') : '')+'</th>').join('') + '<th>Statut</th>';
+    document.getElementById('stockTableBody').innerHTML = list.length
+      ? list.map(({p,st})=>
+          '<tr><td>'+p.internalCode+'</td><td>'+p.partNo+'</td><td>'+(p.designation||'').trim()+'</td>'+
+          '<td>'+(p.position||'')+'</td><td>'+round3(p.mileage)+'</td><td>'+(p.review||'')+'</td>'+
+          '<td>'+(p.replace||'')+'</td><td>'+fmtDate(p.lastChangedDate)+'</td>'+
+          '<td><span class="status-dot dot-'+st.level+'"></span>'+STATUS_LABEL[st.level]+'</td></tr>'
+        ).join('')
+      : '<tr><td colspan="9" class="small">Aucune piece ne correspond a la recherche.</td></tr>';
+    document.querySelectorAll('.mecaSortTh').forEach(th=>{
+      th.addEventListener('click', ()=>{
+        const k = th.dataset.k;
+        if(mecaniqueSort.key===k) mecaniqueSort.dir = -mecaniqueSort.dir;
+        else { mecaniqueSort.key = k; mecaniqueSort.dir = 1; }
+        renderMecaniqueTable();
+      });
+    });
   }
 
   function renderGenericTable(fixedCategoryKeys, readOnlyThickness){
@@ -5038,6 +5104,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
   // ---------- PARTS TABLE ----------
   let partsSort = {key:'internalCode', dir:1};
+  // Tri propre au sous-onglet Stock > Mecanique : il montre les memes pieces,
+  // mais on ne veut pas qu'un tri fait la-bas deplace la table "Etat des
+  // pieces" sous les yeux de quelqu'un d'autre.
+  let mecaniqueSort = {key:'internalCode', dir:1};
   function renderPartsTable(){
     const q = (document.getElementById('partsSearch2').value||'').toLowerCase();
     const statusFilter = document.getElementById('partsStatusFilter').value;
