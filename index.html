@@ -294,6 +294,13 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-pneus-table th,.rs-pneus-table td{white-space:nowrap;}
 .rs-pneus-table td.rs-pneus-cold input{width:52px;}
 .rs-pneus-table td.rs-pneus-hot{background:rgba(240,147,43,0.14);font-weight:600;color:var(--accent);}
+.rs-pneus-table td.rs-pneus-rim input{width:58px;}
+.rs-pneus-table td.rs-pneus-rim{background:rgba(93,173,226,0.12);}
+input.rs-pneus-temp{width:64px;display:inline-block;}
+/* Epaisseur sous le minimum reglementaire : piece non conforme */
+.thk-below-min{color:#e74c3c;font-weight:700;}
+.thk-below-min-tag{display:inline-block;margin-left:4px;padding:1px 6px;border-radius:4px;background:#e74c3c;color:#fff;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;}
+.thk-min-note{opacity:.75;}
 .rs-pneus-table tr.rs-pneus-sess-first td{border-top:2px solid var(--accent);}
 .rs-fr-pit-lbl{font-size:10px;text-align:center;margin-top:3px;line-height:1.3;color:var(--muted);}
 .rs-tyre-table{margin-top:8px;}
@@ -1228,6 +1235,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       if(tyreCatMig.newThickness==null) tyreCatMig.newThickness = 4.0;
       if(tyreCatMig.usedThickness==null) tyreCatMig.usedThickness = 1.0;
     }
+    // Epaisseur MINIMUM reglementaire : en dessous, la piece est hors regles
+    // (planche : 20 mm, verifie aux verifications techniques). Distinct de
+    // "use", qui est une fin de vie utile et non une limite reglementaire.
+    const plankCatMig = data.stockCategories.find(c=>c.key==='plank');
+    if(plankCatMig && plankCatMig.minThickness==null) plankCatMig.minThickness = 20;
     data.stockItems.forEach(i=>{
       if(i.categoryKey==='tyre'){
         if(!i.extra) i.extra = {};
@@ -1245,6 +1257,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     data.mlmcEvents.forEach(ev=>{
       if(!Array.isArray(ev.tasks)) ev.tasks = [];
       if(typeof ev.country!=='string') ev.country = '';
+      // Conditions relevees au moment de la mise des pressions a froid : l'air
+      // et la piste valent pour toute la session, pas pour un train en
+      // particulier - stockees une fois par session (voir renderRunPneusTab).
+      if(!ev.coldCondBySession || typeof ev.coldCondBySession!=='object') ev.coldCondBySession={};
       if(!Array.isArray(ev.tyreSets)) ev.tyreSets = [];
       // Migration : train de pneus = objet {code, name, mounted, rimSet, km, notes} (avant : simple code)
       ev.tyreSets = ev.tyreSets.map(t=>{
@@ -1258,6 +1274,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
           if(!t.coldPress || typeof t.coldPress!=='object') t.coldPress={fl:'',fr:'',rl:'',rr:''};
           ['fl','fr','rl','rr'].forEach(k=>{ if(typeof t.coldPress[k]!=='string') t.coldPress[k]=(t.coldPress[k]==null?'':String(t.coldPress[k])); });
           if(!t.coldPressBySession || typeof t.coldPressBySession!=='object') t.coldPressBySession={};
+          // Temperature de jante relevee au moment ou les pressions a froid
+          // sont mises, par train et par session (une jante chaude fausse la
+          // lecture : sans elle, la pression a froid n'est pas interpretable).
+          if(!t.coldRimTempBySession || typeof t.coldRimTempBySession!=='object') t.coldRimTempBySession={};
           if(typeof t.notes!=='string') t.notes='';
           return t;
         }
@@ -1784,6 +1804,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
 
   function thicknessInputColor(cat, val){
+    // Sous le minimum reglementaire, on sort du degrade d'usure : rouge franc,
+    // parce que ce n'est plus une question d'usure mais de conformite.
+    if(belowMinThickness(cat, val)) return 'background:rgba(231,76,60,0.55);border-color:#e74c3c;color:#fff;font-weight:700;';
     if(val==null || cat.newThickness==null || cat.usedThickness==null || cat.newThickness===cat.usedThickness) return '';
     const t = Math.max(0, Math.min(1, (cat.newThickness-val)/(cat.newThickness-cat.usedThickness)));
     const from=[46,204,113], to=[231,76,60];
@@ -2383,12 +2406,21 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         : '-';
       let thicknessCell = '-';
       if(c.trackThickness){
+        // Rappel du minimum reglementaire dans l'inventaire, et alerte rouge
+        // des que l'epaisseur moyenne passe dessous (piece non conforme).
+        const minNote = (c.minThickness!=null) ? '<div class="small thk-min-note">mini '+c.minThickness+'mm</div>' : '';
+        const below = !!(w && belowMinThickness(c, w.avg));
+        const summary = w
+          ? '<span class="'+(below?'thk-below-min':'')+'">moy '+w.avg+'mm'+(w.pct!=null?' - usure '+w.pct+'%':'')+'</span>'+
+            (below?' <span class="thk-below-min-tag">sous le mini</span>':'')
+          : '<span class="small">pas de mesure</span>';
         if(readOnlyThickness){
-          thicknessCell = w ? ('moy '+w.avg+'mm'+(w.pct!=null?' - usure '+w.pct+'%':'')) : '<span class="small">pas de mesure</span>';
+          thicknessCell = summary + minNote;
         } else {
           const vals = item.thickness || [null,null,null];
-          thicknessCell = [0,1,2].map(idx=>'<input type="number" step="0.01" class="stockThicknessInput" data-id="'+item.id+'" data-idx="'+idx+'" value="'+(vals[idx]!=null?vals[idx]:'')+'" style="width:56px;display:inline-block;">').join(' ');
-          if(w) thicknessCell += '<div class="small">moy '+w.avg+'mm'+(w.pct!=null?' - usure '+w.pct+'%':'')+'</div>';
+          thicknessCell = [0,1,2].map(idx=>'<input type="number" step="0.01" class="stockThicknessInput" data-id="'+item.id+'" data-idx="'+idx+'" value="'+(vals[idx]!=null?vals[idx]:'')+'" style="'+thicknessInputColor(c, vals[idx])+'width:56px;display:inline-block;">').join(' ');
+          if(w) thicknessCell += '<div class="small">'+summary+'</div>';
+          thicknessCell += minNote;
         }
       }
       let posCell = (item.position||'-');
@@ -2465,7 +2497,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     return '<div class="wear-threshold-row"><span>Seuils '+cat.label+' :</span>'+
       '<label>Neuf (mm) <input type="number" step="0.1" class="threshInput" data-cat="'+cat.key+'" data-field="newThickness" value="'+(cat.newThickness!=null?cat.newThickness:'')+'"></label>'+
       '<label>Use (mm) <input type="number" step="0.1" class="threshInput" data-cat="'+cat.key+'" data-field="usedThickness" value="'+(cat.usedThickness!=null?cat.usedThickness:'')+'"></label>'+
+      '<label title="Epaisseur minimum autorisee par le reglement : en dessous, la piece est non conforme.">Mini reglement (mm) <input type="number" step="0.1" class="threshInput" data-cat="'+cat.key+'" data-field="minThickness" value="'+(cat.minThickness!=null?cat.minThickness:'')+'"></label>'+
     '</div>';
+  }
+  // Epaisseur sous le minimum reglementaire ? (piece non conforme, a signaler
+  // en rouge partout ou l'epaisseur est affichee)
+  function belowMinThickness(cat, val){
+    return !!(cat && cat.minThickness!=null && val!=null && val!=='' && Number(val) < cat.minThickness);
   }
   function wireThresholdEditors(){
     document.querySelectorAll('.threshInput').forEach(inp=>{
@@ -2699,7 +2737,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       html += '<div class="wm-row">'+
         '<div class="wm-row-head"><b>'+c.label+'</b> - <input type="text" class="wmCodeInput" data-id="'+item.id+'" value="'+(item.code||'').replace(/"/g,'&quot;')+'" style="width:140px;display:inline-block;">'+(item.position?' ['+item.position+']':'')+' <span class="status-pill '+item.status+'">'+STOCK_STATUS_LABEL[item.status]+'</span></div>'+
         '<div class="tm-inputs">'+thicknessInputsHtml(c, item, 'wmThicknessInput')+'</div>'+
-        '<div class="tm-result">'+(w?('moy '+w.avg+'mm'+(w.pct!=null?' - '+w.pct+'% use':'')+(c.dualMeasure?(' — Int '+(subAvg(item,0,3)!=null?subAvg(item,0,3)+'mm':'-')+' / Ext '+(subAvg(item,3,6)!=null?subAvg(item,3,6)+'mm':'-')):'')):'pas de mesure')+'</div>'+
+        '<div class="tm-result'+((w && belowMinThickness(c, w.avg))?' thk-below-min':'')+'">'+(w?('moy '+w.avg+'mm'+(w.pct!=null?' - '+w.pct+'% use':'')+(c.dualMeasure?(' — Int '+(subAvg(item,0,3)!=null?subAvg(item,0,3)+'mm':'-')+' / Ext '+(subAvg(item,3,6)!=null?subAvg(item,3,6)+'mm':'-')):'')):'pas de mesure')+
+          ((w && belowMinThickness(c, w.avg))?' <span class="thk-below-min-tag">sous le mini ('+c.minThickness+'mm)</span>':'')+'</div>'+
         '<div class="tm-stats-row"><span>Usure totale: <b>'+(stats.totalPct!=null?stats.totalPct+'%':'-')+'</b></span><span>Usure/mesure: <b>'+(stats.avgDelta!=null?'+'+stats.avgDelta+'pts':'-')+'</b></span><span>Stints restants: <b>'+(stats.theoStints!=null?stats.theoStints:'-')+'</b></span><span>Km restants estimes: <b>'+(stats.theoKm!=null?stats.theoKm+' km':'-')+'</b></span></div>'+
         renderWearSparkline(item)+
         '<div class="tm-actions">'+
@@ -3899,14 +3938,21 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const next=findNextOfficialSessionDT();
       pneusColdTaskKey = (next && String(next.ev.id)===String(ev.id)) ? (ev.id+'::'+next.t.id) : (evTasks.length? (ev.id+'::'+evTasks[0].id):'');
     }
-    // Pressions a froid PAR TRAIN et PAR SESSION (a preparer avant la session)
+    // Pressions a froid PAR TRAIN et PAR SESSION (a preparer avant la session).
+    // Les conditions du releve les accompagnent : air et piste valent pour la
+    // session entiere, la temperature de jante est propre a chaque train.
+    const coldCond=(ev.coldCondBySession&&ev.coldCondBySession[pneusColdTaskKey])||{};
     let html='<div class="row" style="margin-top:12px;align-items:center;gap:10px;flex-wrap:wrap;"><h5 style="margin:0;color:var(--accent);text-transform:uppercase;font-size:12px;letter-spacing:.4px;">Pressions à froid par train</h5>'+
-      '<label style="margin:0;">Session <select id="pneusColdSession">'+todoTaskSelectOptions(ev.id, pneusColdTaskKey)+'</select></label></div>';
+      '<label style="margin:0;">Session <select id="pneusColdSession">'+todoTaskSelectOptions(ev.id, pneusColdTaskKey)+'</select></label>'+
+      '<label style="margin:0;">T° air <input type="text" id="pneusColdAir" class="rs-pneus-temp" value="'+esc(coldCond.air||'')+'" placeholder="°C"></label>'+
+      '<label style="margin:0;">T° piste <input type="text" id="pneusColdTrack" class="rs-pneus-temp" value="'+esc(coldCond.track||'')+'" placeholder="°C"></label></div>';
     if(ev.tyreSets && ev.tyreSets.length){
-      html+='<div class="rs-laps-wrap"><table class="rs-laps rs-pneus-table"><thead><tr><th>Train de pneus</th><th>Froid FL</th><th>Froid FR</th><th>Froid RL</th><th>Froid RR</th></tr></thead><tbody>'+
+      html+='<div class="rs-laps-wrap"><table class="rs-laps rs-pneus-table"><thead><tr><th>Train de pneus</th><th>Froid FL</th><th>Froid FR</th><th>Froid RL</th><th>Froid RR</th><th>T° jante</th></tr></thead><tbody>'+
         ev.tyreSets.map((t,i)=>{ const cps=(t.coldPressBySession&&t.coldPressBySession[pneusColdTaskKey])||{};
+          const rim=(t.coldRimTempBySession&&t.coldRimTempBySession[pneusColdTaskKey])||'';
           return '<tr><td style="text-align:left;font-weight:600;">'+esc(tyreSetLabel(t.code))+'</td>'+
-          LC.map(k=>'<td class="rs-pneus-cold"><input type="text" class="rsTrainCold" data-i="'+i+'" data-k="'+k+'" value="'+esc(cps[k]||'')+'"></td>').join('')+'</tr>'; }).join('')+
+          LC.map(k=>'<td class="rs-pneus-cold"><input type="text" class="rsTrainCold" data-i="'+i+'" data-k="'+k+'" value="'+esc(cps[k]||'')+'"></td>').join('')+
+          '<td class="rs-pneus-rim"><input type="text" class="rsTrainRimTemp" data-i="'+i+'" value="'+esc(rim)+'" placeholder="°C"></td></tr>'; }).join('')+
         '</tbody></table></div>';
     } else {
       html+='<div class="small">Aucun train ajouté à l\'event (onglet Accueil &gt; Pneus de l\'event).</div>';
@@ -3947,6 +3993,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const coldSessSel=document.getElementById('pneusColdSession');
     if(coldSessSel) coldSessSel.addEventListener('change', e=>{ pneusColdTaskKey=e.target.value; renderRunPneusTab(); });
     box.querySelectorAll('.rsTrainCold').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); const t=ev.tyreSets[i]; if(t && pneusColdTaskKey){ if(!t.coldPressBySession) t.coldPressBySession={}; if(!t.coldPressBySession[pneusColdTaskKey]) t.coldPressBySession[pneusColdTaskKey]={fl:'',fr:'',rl:'',rr:''}; t.coldPressBySession[pneusColdTaskKey][e.target.dataset.k]=e.target.value; saveState(); } }));
+    box.querySelectorAll('.rsTrainRimTemp').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); const t=ev.tyreSets[i]; if(t && pneusColdTaskKey){ if(!t.coldRimTempBySession) t.coldRimTempBySession={}; t.coldRimTempBySession[pneusColdTaskKey]=e.target.value; saveState(); } }));
+    ['pneusColdAir','pneusColdTrack'].forEach(id=>{ const el=document.getElementById(id); if(!el) return; el.addEventListener('change', e=>{ if(!pneusColdTaskKey) return; if(!ev.coldCondBySession) ev.coldCondBySession={}; if(!ev.coldCondBySession[pneusColdTaskKey]) ev.coldCondBySession[pneusColdTaskKey]={air:'',track:''}; ev.coldCondBySession[pneusColdTaskKey][id==='pneusColdAir'?'air':'track']=e.target.value; saveState(); }); });
   }
   // ---------- RUN PLAN ----------
   function normPlanRun(r){ ['driver','tyreSet','laps','fuelAdded','description','changes','pitTime','startTime'].forEach(k=>{ if(typeof r[k]!=='string') r[k]=(r[k]==null?'':String(r[k])); }); if(typeof r.box!=='boolean') r.box=false; return r; }
