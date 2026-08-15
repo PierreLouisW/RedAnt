@@ -4584,6 +4584,47 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   // l'utilisateur a nommes lui-meme et qui restent visibles dans
   // Setup > Historique - a lui de decider de les supprimer.
   // `predicate` recoit une cle de session ("<idEvent>::<idTache>").
+  // Vrai si `o` contient au moins une valeur reellement saisie. Sert a
+  // distinguer une session REMPLIE d'un simple squelette : ouvrir une runsheet,
+  // un run plan ou un setup en cree un automatiquement, entierement vide.
+  // Sans cette distinction, toute suppression declencherait une confirmation,
+  // y compris pour une session ou personne n'a jamais rien tape.
+  function anyFilled(o, depth){
+    depth = depth || 0;
+    if(o == null || depth > 5) return false;
+    if(Array.isArray(o)) return o.length > 0;
+    if(typeof o === 'object') return Object.keys(o).some(k=>anyFilled(o[k], depth+1));
+    if(typeof o === 'string') return o.trim() !== '';
+    if(typeof o === 'number') return true;
+    if(typeof o === 'boolean') return o === true;
+    return false;
+  }
+  // Des donnees ont-elles ete saisies pour cette session ? On regarde les
+  // sous-objets utiles uniquement : `phase` (setup) et `activeStint` (runsheet)
+  // sont des valeurs de squelette, toujours presentes, qu'il ne faut pas
+  // compter comme du contenu.
+  function sessionHasData(key){
+    const r = STATE.runsheets && STATE.runsheets[key];
+    if(r && Array.isArray(r.stints) && r.stints.some(st=>anyFilled(st))) return true;
+    const p = STATE.runPlans && STATE.runPlans[key];
+    if(p && anyFilled({name:p.name, notes:p.notes, runs:p.runs})) return true;
+    const s = STATE.setupData && STATE.setupData[key];
+    if(s && anyFilled({corners:s.corners, shared:s.shared, weights:s.weights, conditions:s.conditions})) return true;
+    return false;
+  }
+  // Demande confirmation AVANT de detruire des sessions qui contiennent des
+  // donnees. Renvoie true s'il faut poursuivre (rien a perdre, ou l'utilisateur
+  // a confirme). Une suppression reste immediate quand il n'y a rien a perdre.
+  function confirmSessionPurge(predicate, buildMessage){
+    const keys = new Set();
+    ['runsheets','runPlans','setupData'].forEach(store=>{
+      const o = STATE[store];
+      if(o && typeof o==='object') Object.keys(o).forEach(k=>{ if(predicate(k)) keys.add(k); });
+    });
+    const withData = [...keys].filter(sessionHasData);
+    if(!withData.length) return true;
+    return confirm(buildMessage(withData.length));
+  }
   function purgeSessionData(predicate){
     let removed = 0;
     ['runsheets','runPlans','setupData'].forEach(store=>{
@@ -4654,9 +4695,14 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     document.querySelectorAll('.cal-del[data-id]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const evId = Number(btn.dataset.id);
-        STATE.mlmcEvents = STATE.mlmcEvents.filter(e=>e.id!==evId);
         // Toutes les sessions de cet evenement disparaissent avec lui.
-        purgeSessionData(k=>String(k).split('::')[0]===String(evId));
+        const belongsToEvent = k=>String(k).split('::')[0]===String(evId);
+        const evName = (STATE.mlmcEvents.find(e=>e.id===evId)||{}).label || 'cet evenement';
+        if(!confirmSessionPurge(belongsToEvent, n=>
+          'Supprimer "'+evName+'" ?\n\n'+n+' session(s) contiennent des donnees saisies '+
+          '(runsheet, run plan, setup). Elles seront definitivement perdues.')) return;
+        STATE.mlmcEvents = STATE.mlmcEvents.filter(e=>e.id!==evId);
+        purgeSessionData(belongsToEvent);
         saveState();
       });
     });
@@ -4699,8 +4745,14 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       btn.addEventListener('click', ()=>{
         const ev = STATE.mlmcEvents.find(e=>e.id===Number(btn.dataset.ev));
         if(!ev) return;
+        const taskKey = btn.dataset.ev+'::'+btn.dataset.task;
+        const task = (ev.tasks||[]).find(t=>t.id===Number(btn.dataset.task));
+        const taskName = (task && task.text) ? task.text : 'cette session';
+        if(!confirmSessionPurge(k=>k===taskKey, ()=>
+          'Supprimer "'+taskName+'" ?\n\nSa runsheet, son run plan et son setup contiennent des '+
+          'donnees saisies. Ils seront definitivement perdus.')) return;
         ev.tasks = (ev.tasks||[]).filter(t=>t.id!==Number(btn.dataset.task));
-        purgeSessionData(k=>k===btn.dataset.ev+'::'+btn.dataset.task);
+        purgeSessionData(k=>k===taskKey);
         saveState();
       });
     });
