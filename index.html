@@ -296,6 +296,7 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .rs-pneus-table td.rs-pneus-hot{background:rgba(240,147,43,0.14);font-weight:600;color:var(--accent);}
 .rs-pneus-table td.rs-pneus-rim input{width:58px;}
 .rs-pneus-table td.rs-pneus-rim{background:rgba(93,173,226,0.12);}
+.rs-pneus-table td.rs-pneus-coldcond{background:rgba(93,173,226,0.12);}
 input.rs-pneus-temp{width:64px;display:inline-block;}
 /* Epaisseur sous le minimum reglementaire : piece non conforme */
 .thk-below-min{color:#e74c3c;font-weight:700;}
@@ -3486,6 +3487,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const box = document.getElementById('runsheetContent');
     const taskKey = selectedRunContext.taskKey;
     if(!taskKey){ box.innerHTML = '<div class="small">Selectionnez une session officielle pour sa run sheet.</div>'; return; }
+    // Reprend les pressions a froid preparees dans l'onglet Pneus, meme si on
+    // n'y est jamais passe : la ligne "Cold" ci-dessous lit st.press.cold.
+    if(syncColdPressFromTrains(runEventObj())) saveState();
     const r = getRunsheet(taskKey);
     const st = getStint(taskKey);
     const ev = runEventObj();
@@ -3924,12 +3928,42 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     else if(which==='resume'){ renderResumeTab(); }
     else { autoSelectRunContext(); renderRunsheetTab(); }
   }
+  // Pressions a froid PREPAREES par train (section du haut) -> relais des
+  // runsheets. On ne remplit que les cases VIDES : la preparation est une
+  // consigne, le relais porte ce qui a ete REELLEMENT mis sur la voiture, et
+  // ecraser une valeur relevee ferait perdre la mesure. Corollaire pratique :
+  // vider une case la fait reprendre la consigne du train.
+  // Ecrit dans st.press.cold, donc la ligne "Cold" de la Run Sheet reflete
+  // automatiquement la meme valeur. Rend true si quelque chose a change.
+  function syncColdPressFromTrains(ev){
+    if(!ev || !Array.isArray(ev.tyreSets) || !ev.tyreSets.length) return false;
+    const CORN=['FL','FR','RL','RR'], LC=['fl','fr','rl','rr'];
+    let changed=false;
+    (ev.tasks||[]).forEach(t=>{
+      const taskKey=ev.id+'::'+t.id;
+      if(!STATE.runsheets[taskKey]) return;
+      getRunsheet(taskKey).stints.forEach(st=>{
+        if(!st.tyreSet) return;
+        const train=ev.tyreSets.find(x=>x.code===st.tyreSet);
+        const prep=train && train.coldPressBySession && train.coldPressBySession[taskKey];
+        if(!prep) return;
+        CORN.forEach((C,i)=>{
+          const v=prep[LC[i]];
+          if(v!=null && v!=='' && (st.press.cold[C]==null || st.press.cold[C]==='')){
+            st.press.cold[C]=v; changed=true;
+          }
+        });
+      });
+    });
+    return changed;
+  }
   function renderRunPneusTab(){
     const evtSel=document.getElementById('pneusEventSelect'); if(!evtSel) return;
     if(!selectedRunContext.eventId){ const next=findNextOfficialSessionDT(); if(next) selectedRunContext.eventId=String(next.ev.id); }
     evtSel.innerHTML=eventSelectOptions(selectedRunContext.eventId);
     const box=document.getElementById('runPneusContent'); const ev=runEventObj();
     if(!ev){ box.innerHTML='<div class="small" style="margin-top:12px;">Choisissez un evenement.</div>'; return; }
+    if(syncColdPressFromTrains(ev)) saveState();
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
     const CORN=['FL','FR','RL','RR']; const LC=['fl','fr','rl','rr'];
     // Session selectionnee pour les pressions a froid par train (par defaut : prochaine session de l'event, sinon 1ere)
@@ -3958,9 +3992,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       html+='<div class="small">Aucun train ajouté à l\'event (onglet Accueil &gt; Pneus de l\'event).</div>';
     }
     html+='<h5 style="margin-top:18px;color:var(--accent);text-transform:uppercase;font-size:12px;letter-spacing:.4px;">Par session / relais</h5>';
-    html+='<p class="small">Pressions à froid éditables ; les pressions à chaud sont reprises automatiquement des runsheets de chaque session (relais).</p>';
+    html+='<p class="small">Les pressions à froid vides reprennent automatiquement la consigne préparée ci-dessus pour le train de ce relais (et alimentent la ligne «&nbsp;Cold&nbsp;» de la Run Sheet) ; une valeur saisie n\'est jamais écrasée. Les pressions à chaud et les conditions de roulage sont reprises des runsheets.</p>';
     html+='<div class="rs-laps-wrap"><table class="rs-laps rs-pneus-table"><thead><tr>'+
-      '<th>Session</th><th>Run</th><th>Train pneus</th>'+CORN.map(c=>'<th>Froid '+c+'</th>').join('')+'<th>Laps</th>'+CORN.map(c=>'<th>Chaud '+c+'</th>').join('')+'<th>T Air</th><th>T Piste</th><th>Pilote</th></tr></thead><tbody>';
+      '<th>Session</th><th>Run</th><th>Train pneus</th>'+CORN.map(c=>'<th>Froid '+c+'</th>').join('')+
+      '<th>Air froid</th><th>Piste froid</th><th>Jante froid</th>'+
+      '<th>Laps</th>'+CORN.map(c=>'<th>Chaud '+c+'</th>').join('')+'<th>Air run</th><th>Piste run</th><th>Pilote</th></tr></thead><tbody>';
     let any=false, lastTask=null;
     (ev.tasks||[]).forEach(t=>{
       const taskKey=ev.id+'::'+t.id;
@@ -3972,12 +4008,21 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         const newSess = lastTask!==taskKey; lastTask=taskKey;
         const coldCells=CORN.map(c=>'<td class="rs-pneus-cold"><input type="text" class="rsPneusCold" data-task="'+esc(taskKey)+'" data-stint="'+si+'" data-corner="'+c+'" value="'+esc(st.press.cold[c]||'')+'"></td>').join('');
         const hotCells=CORN.map(c=>'<td class="rs-pneus-hot">'+esc(st.press.hot[c]||'-')+'</td>').join('');
+        // Conditions du RELEVE A FROID : air et piste valent pour la session,
+        // la temperature de jante est celle du train monte sur ce relais.
+        const coldCond=(ev.coldCondBySession&&ev.coldCondBySession[taskKey])||{};
+        const trainOfStint=st.tyreSet?(ev.tyreSets||[]).find(x=>x.code===st.tyreSet):null;
+        const rimCold=(trainOfStint&&trainOfStint.coldRimTempBySession&&trainOfStint.coldRimTempBySession[taskKey])||'';
+        const coldCondCells='<td class="rs-pneus-coldcond">'+esc(coldCond.air||'-')+'</td>'+
+          '<td class="rs-pneus-coldcond">'+esc(coldCond.track||'-')+'</td>'+
+          '<td class="rs-pneus-coldcond">'+esc(rimCold||'-')+'</td>';
         const laps=st.laps.filter(l=>lapEffSec(l)!=null).length;
         html+='<tr'+(newSess?' class="rs-pneus-sess-first"':'')+'>'+
           '<td style="text-align:left;font-weight:600;">'+esc(t.text||'Session')+(newSess?'<div class="small" style="font-weight:400;">'+esc(fmtDate(t.date))+'</div>':'')+'</td>'+
           '<td style="text-align:left;">'+(st.name?esc(st.name):'Relais '+(si+1))+'</td>'+
           '<td style="text-align:left;">'+(st.tyreSet?esc(tyreSetLabel(st.tyreSet)):'—')+'</td>'+
           coldCells+
+          coldCondCells+
           '<td>'+laps+'</td>'+
           hotCells+
           '<td>'+esc(st.cond.airTemp||'-')+'</td>'+
@@ -3986,13 +4031,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         '</tr>';
       });
     });
-    if(!any) html+='<tr><td colspan="16" class="small" style="text-align:left;">Aucune session avec runsheet. Remplissez des relais dans les runsheets de l\'event.</td></tr>';
+    if(!any) html+='<tr><td colspan="18" class="small" style="text-align:left;">Aucune session avec runsheet. Remplissez des relais dans les runsheets de l\'event.</td></tr>';
     html+='</tbody></table></div>';
     box.innerHTML=html;
     box.querySelectorAll('.rsPneusCold').forEach(el=>el.addEventListener('change', e=>{ const r=getRunsheet(e.target.dataset.task); const st=r&&r.stints[Number(e.target.dataset.stint)]; if(st){ st.press.cold[e.target.dataset.corner]=e.target.value; saveState(); } }));
     const coldSessSel=document.getElementById('pneusColdSession');
     if(coldSessSel) coldSessSel.addEventListener('change', e=>{ pneusColdTaskKey=e.target.value; renderRunPneusTab(); });
-    box.querySelectorAll('.rsTrainCold').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); const t=ev.tyreSets[i]; if(t && pneusColdTaskKey){ if(!t.coldPressBySession) t.coldPressBySession={}; if(!t.coldPressBySession[pneusColdTaskKey]) t.coldPressBySession[pneusColdTaskKey]={fl:'',fr:'',rl:'',rr:''}; t.coldPressBySession[pneusColdTaskKey][e.target.dataset.k]=e.target.value; saveState(); } }));
+    box.querySelectorAll('.rsTrainCold').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); const t=ev.tyreSets[i]; if(t && pneusColdTaskKey){ if(!t.coldPressBySession) t.coldPressBySession={}; if(!t.coldPressBySession[pneusColdTaskKey]) t.coldPressBySession[pneusColdTaskKey]={fl:'',fr:'',rl:'',rr:''}; t.coldPressBySession[pneusColdTaskKey][e.target.dataset.k]=e.target.value; syncColdPressFromTrains(ev); saveState(); renderRunPneusTab(); } }));
     box.querySelectorAll('.rsTrainRimTemp').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); const t=ev.tyreSets[i]; if(t && pneusColdTaskKey){ if(!t.coldRimTempBySession) t.coldRimTempBySession={}; t.coldRimTempBySession[pneusColdTaskKey]=e.target.value; saveState(); } }));
     ['pneusColdAir','pneusColdTrack'].forEach(id=>{ const el=document.getElementById(id); if(!el) return; el.addEventListener('change', e=>{ if(!pneusColdTaskKey) return; if(!ev.coldCondBySession) ev.coldCondBySession={}; if(!ev.coldCondBySession[pneusColdTaskKey]) ev.coldCondBySession[pneusColdTaskKey]={air:'',track:''}; ev.coldCondBySession[pneusColdTaskKey][id==='pneusColdAir'?'air':'track']=e.target.value; saveState(); }); });
   }
