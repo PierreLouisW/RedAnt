@@ -987,7 +987,7 @@ body.auth-locked #authGate{ display:flex; }
       <table id="sessionsTable">
         <thead><tr>
           <th>Date</th><th>Circuit</th><th>Tours</th><th>Km</th><th>Pilote</th><th>Championnat</th>
-          <th>Numero</th><th>Seance</th><th>Run</th><th>Casse</th><th>Note</th>
+          <th>Numero</th><th>Seance</th><th>Run</th><th>Casse</th><th>Note</th><th></th>
         </tr></thead>
         <tbody id="sessionsTableBody"></tbody>
       </table>
@@ -999,7 +999,7 @@ body.auth-locked #authGate{ display:flex; }
       <table id="changesTable">
         <thead><tr>
           <th>Date</th><th>Timing</th><th>Code</th><th>Piece</th><th>Km a l'echange</th>
-          <th>Session liee</th><th>Note</th>
+          <th>Session liee</th><th>Note</th><th></th>
         </tr></thead>
         <tbody id="changesTableBody"></tbody>
       </table>
@@ -3588,7 +3588,15 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const addStintBtn=box.querySelector('#rsAddStintBtn');
     if(addStintBtn) addStintBtn.addEventListener('click', ()=>{ const rr=getRunsheet(taskKey); const prev=rr.stints[rr.stints.length-1]||{}; const ns=normStint({ driver:prev.driver||'', setupId:prev.setupId||'', tyreSet:'', startTime:'' }); const prevEnd=stintStats(prev).fuelEnd; if(prevEnd!=null) ns.fuel.startFuel=String(Math.round(prevEnd*100)/100); rr.stints.push(ns); rr.activeStint=rr.stints.length-1; saveState(); renderRunsheetTab(); });
     const delStintBtn=box.querySelector('#rsDelStintBtn');
-    if(delStintBtn) delStintBtn.addEventListener('click', ()=>{ const rr=getRunsheet(taskKey); if(rr.stints.length<=1) return; if(!confirm('Supprimer le relais '+(rr.activeStint+1)+' ?')) return; rr.stints.splice(rr.activeStint,1); rr.activeStint=Math.max(0,rr.activeStint-1); saveState(); renderRunsheetTab(); });
+    if(delStintBtn) delStintBtn.addEventListener('click', ()=>{ const rr=getRunsheet(taskKey); if(rr.stints.length<=1) return;
+      const st=rr.stints[rr.activeStint];
+      // Un relais deja renseigne (tours, pressions, essence...) merite un
+      // avertissement explicite ; un relais vide part sans ceremonie.
+      const msg = anyFilled(st)
+        ? 'Supprimer le relais '+(rr.activeStint+1)+' ?\n\nIl contient des donnees saisies (tours, pressions, essence, commentaires). Elles seront definitivement perdues.'
+        : 'Supprimer le relais '+(rr.activeStint+1)+' ?';
+      if(!confirm(msg)) return;
+      rr.stints.splice(rr.activeStint,1); rr.activeStint=Math.max(0,Math.min(rr.activeStint, rr.stints.length-1)); saveState(); renderRunsheetTab(); });
 
     // wiring
     const save=()=>saveState();
@@ -5069,20 +5077,65 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
   // ---------- SESSIONS HISTORY ----------
   function renderSessionsTable(){
-    document.getElementById('sessionsTableBody').innerHTML = STATE.sessions.map(s=>
+    document.getElementById('sessionsTableBody').innerHTML = STATE.sessions.map((s,i)=>
       '<tr><td>'+fmtDate(s.date)+'</td><td>'+s.circuit+'</td><td>'+s.tours+'</td><td>'+round3(s.km)+'</td>'+
       '<td>'+driverChip(s.pilote||'')+'</td><td>'+(s.championnat||'')+'</td><td>'+(s.numero||'')+'</td>'+
-      '<td>'+(s.seance||'')+'</td><td>'+(s.run||'')+'</td><td>'+(s.casse?'Oui':'')+'</td><td>'+(s.note||'')+'</td></tr>'
+      '<td>'+(s.seance||'')+'</td><td>'+(s.run||'')+'</td><td>'+(s.casse?'Oui':'')+'</td><td>'+(s.note||'')+'</td>'+
+      '<td><button class="cal-del sessionDelBtn" data-i="'+i+'" title="Supprimer cette session">&times;</button></td></tr>'
     ).join('');
+    document.querySelectorAll('.sessionDelBtn').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const i = Number(btn.dataset.i);
+        const s = STATE.sessions[i];
+        if(!s) return;
+        const km = Number(s.km)||0;
+        // Saisir une session AJOUTE ses km au total, a chaque piece et a chaque
+        // train monte (voir submitSession) : la supprimer defait exactement la
+        // meme chose. Attention, le retour arriere n'est fidele que si le
+        // monte n'a pas change depuis - d'ou l'avertissement ci-dessous.
+        if(!confirm('Supprimer la session du '+fmtDate(s.date)+' - '+(s.circuit||'')+' ?\n\n'+
+          round3(km)+' km seront retires du total, du kilometrage de chaque piece et de chaque '+
+          'train actuellement monte.\n\nSi le monte a change depuis, ou si une piece a ete remplacee '+
+          'entre-temps, verifiez les compteurs concernes dans l\'onglet Voiture.')) return;
+        STATE.totalMileage = round3(Math.max(0, (STATE.totalMileage||0) - km));
+        STATE.parts.forEach(p=>{ p.mileage = round3(Math.max(0, (p.mileage||0) - km)); });
+        STATE.stockItems.forEach(item=>{
+          const cat = getCategory(item.categoryKey);
+          if(cat && cat.trackKm && item.status==='voiture'){
+            item.mileage = round3(Math.max(0, (item.mileage||0) - km));
+          }
+        });
+        STATE.sessions.splice(i,1);
+        saveState();
+      });
+    });
   }
 
   // ---------- CHANGES HISTORY ----------
   function renderChangesTable(){
-    document.getElementById('changesTableBody').innerHTML = STATE.changeLog.map(c=>
+    document.getElementById('changesTableBody').innerHTML = STATE.changeLog.map((c,i)=>
       '<tr><td>'+fmtDate(c.date)+'</td><td><span class="timing-badge '+c.timing+'">'+(c.timing==='avant'?'Avant':'Pendant')+'</span></td>'+
       '<td>'+c.internalCode+'</td><td>'+(c.designation||'').trim()+'</td><td>'+round3(c.mileageAtChange)+'</td>'+
-      '<td>'+fmtDate(c.sessionDate)+' - '+(c.sessionCircuit||'')+'</td><td>'+(c.note||'')+'</td></tr>'
+      '<td>'+fmtDate(c.sessionDate)+' - '+(c.sessionCircuit||'')+'</td><td>'+(c.note||'')+'</td>'+
+      '<td><button class="cal-del changeDelBtn" data-i="'+i+'" title="Supprimer cette ligne">&times;</button></td></tr>'
     ).join('');
+    document.querySelectorAll('.changeDelBtn').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const i = Number(btn.dataset.i);
+        const c = STATE.changeLog[i];
+        if(!c) return;
+        // Le journal est un RELEVE de ce qui a ete fait sur la voiture : en
+        // retirer une ligne efface la trace, pas le changement lui-meme. Le
+        // compteur de la piece avait ete remis a zero au moment du changement
+        // et sa valeur d'avant n'est stockee nulle part : impossible de la
+        // restaurer, il faut la corriger a la main si besoin.
+        if(!confirm('Supprimer cette ligne de l\'historique des changements ?\n\n'+
+          (c.internalCode||'')+' - '+((c.designation||'').trim())+' au '+fmtDate(c.date)+'\n\n'+
+          'Seule la trace disparait : le kilometrage de la piece n\'est pas recalcule.')) return;
+        STATE.changeLog.splice(i,1);
+        saveState();
+      });
+    });
   }
 
   // ---------- IMPORT / EXPORT ----------
