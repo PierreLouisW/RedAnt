@@ -8416,11 +8416,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   // Les fichiers vont dans Supabase Storage, jamais dans l'etat partage : celui-ci
   // est relu par chaque poste toutes les 15 s, un seul PDF en base64 le doublerait.
   // L'etat ne garde que la fiche du document (titre, chemin, lien).
-  const DOC_BUCKET='documents';
+  // Nom sensible a la casse cote Supabase : "redant" renvoie un 404
+  const DOC_BUCKET='RedAnt';
   const DOC_CATS=[['teams','Teams'],['tech','Techniques'],['info','Informations']];
   const DOC_MAX_MO=25;
   let activeDocCat='teams';
-  let docsBucketManquant=false;
+  // null, 'bucket' (inexistant) ou 'policy' (existe mais droits manquants)
+  let docsStockageProbleme=null;
 
   function docsForEvent(ev, create){
     if(!ev) return [];
@@ -8486,9 +8488,12 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       '<span class="small">'+liste.length+' document'+(liste.length>1?'s':'')+' — '+
         DOC_CATS.filter(c=>c[0]===activeDocCat).map(c=>c[1])+'</span>'+
       '</div>';
-    if(docsBucketManquant){
+    if(docsStockageProbleme==='bucket'){
       h+='<div class="docs-warn">L\'espace de stockage des fichiers n\'existe pas encore sur Supabase : '+
          'les <b>liens</b> fonctionnent, l\'envoi de PDF non. Il faut créer un bucket nommé <code>'+DOC_BUCKET+'</code>.</div>';
+    } else if(docsStockageProbleme==='policy'){
+      h+='<div class="docs-warn">Le bucket <code>'+DOC_BUCKET+'</code> existe, mais les règles d\'accès n\'ont pas encore été ajoutées : '+
+         'Supabase refuse le dépôt. Les <b>liens</b> fonctionnent en attendant.</div>';
     }
     if(!liste.length){
       h+='<div class="small" style="margin-top:14px;">Aucun document dans cette catégorie pour cet évènement.</div>';
@@ -8556,13 +8561,16 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         docsForEvent(ev,true).push({id:Date.now(), cat:activeDocCat, title:titre.trim(), path:up.path,
           fileName:up.fileName, size:up.size, note:note.trim(),
           addedAt:new Date().toISOString(), addedBy:docCurrentUser()});
-        docsBucketManquant=false;
+        docsStockageProbleme=null;
         saveState(); renderDocsTab();
       }catch(err){
         const msg=(err&&err.message)||String(err);
-        if(/bucket/i.test(msg) && /not.*found|exist/i.test(msg)){
-          docsBucketManquant=true;
-          alert('Envoi impossible : l\'espace de stockage "'+DOC_BUCKET+'" n\'existe pas encore sur Supabase.\n\nEn attendant, utilisez "Ajouter un lien".');
+        if(/bucket not found|nosuchbucket/i.test(msg)){
+          docsStockageProbleme='bucket';
+          alert('Envoi impossible : l\'espace de stockage "'+DOC_BUCKET+'" n\'existe pas sur Supabase.\n\nEn attendant, utilisez "Ajouter un lien".');
+        } else if(/row-level security|unauthorized|access ?denied/i.test(msg)){
+          docsStockageProbleme='policy';
+          alert('Envoi refusé par Supabase : le bucket "'+DOC_BUCKET+'" existe mais ses règles d\'accès n\'ont pas encore été ajoutées.\n\nEn attendant, utilisez "Ajouter un lien".');
         } else {
           alert('Envoi impossible.\n\n'+msg);
         }
