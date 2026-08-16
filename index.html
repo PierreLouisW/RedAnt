@@ -21,6 +21,26 @@ body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;backgro
 header{padding:16px 24px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
 header h1{font-size:18px;margin:0;font-weight:600;}
 header .sub{color:var(--muted);font-size:13px;}
+/* Bandeau : logo equipe a gauche, rappel du decompte au centre avec le logo
+   de la competition. Le decompte est le meme que celui de l'accueil. */
+.hdr-left{display:flex;align-items:center;gap:14px;min-width:0;}
+.hdr-logo{height:44px;width:auto;flex:0 0 auto;}
+.hdr-meeting{display:flex;align-items:center;gap:12px;min-width:0;}
+/* Le logo de la competition est concu pour un fond clair : meme pastille
+   blanche que sur l'accueil, sinon il se noie dans le bandeau sombre. */
+.hdr-champ{height:26px;width:auto;flex:0 0 auto;background:#fff;border-radius:8px;padding:5px 10px;}
+.hdr-clock{display:flex;flex-direction:column;gap:1px;min-width:0;}
+.hdr-clock-name{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;}
+.hdr-clock-time{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:.5px;line-height:1.1;}
+.hdr-clock-time.clock-soon{color:#e0433b;}
+.hdr-clock-time.clock-live{color:#1f7a4d;}
+.hdr-clock-time.clock-ok{color:var(--text);}
+.hdr-clock-ev{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px;}
+@media (max-width:900px){
+  .hdr-logo{height:34px;}
+  .hdr-champ{height:20px;padding:4px 8px;}
+  .hdr-clock-time{font-size:17px;}
+}
 .badge{display:inline-block;padding:4px 10px;border-radius:14px;font-size:12px;font-weight:600;}
 .badge.total{background:var(--accent);color:#fff;}
 nav.tabs{display:flex;gap:4px;padding:10px 24px 0;background:linear-gradient(180deg,#e2231a,#c01810);border-bottom:1px solid #7a0f0a;flex-wrap:wrap;}
@@ -575,10 +595,17 @@ body.auth-locked #authGate{ display:flex; }
 </div>
 
 <header>
-  <div>
-    <h1 id="hdrChassis">RedAnt LMP3 - P3-#366</h1>
-    <div class="sub" id="hdrSub">27 sessions enregistrees - derniere maj: 14/08/2026 09:20:52</div>
-    <div class="sync-status" id="syncStatus"><span class="sync-dot sync-ok"></span> Synchronise a 09:48:16</div>
+  <div class="hdr-left">
+    <img class="hdr-logo" src="logo.png" alt="Ajith-RedAnt Racing">
+    <div>
+      <h1 id="hdrChassis">RedAnt LMP3 - P3-#366</h1>
+      <div class="sub" id="hdrSub">27 sessions enregistrees - derniere maj: 14/08/2026 09:20:52</div>
+      <div class="sync-status" id="syncStatus"><span class="sync-dot sync-ok"></span> Synchronise a 09:48:16</div>
+    </div>
+  </div>
+  <div class="hdr-meeting" id="hdrMeeting">
+    <img class="hdr-champ" src="Michelin.png" alt="Michelin Le Mans Cup">
+    <div class="hdr-clock" id="hdrClock"></div>
   </div>
   <div style="display:flex;align-items:center;gap:14px;">
     <button class="hdr-newsession" id="openSessionBtn">+ Nouvelle session</button>
@@ -5268,7 +5295,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const upcoming = findUpcomingOfficialSessions(effectiveHomeEventId());
     const next = upcoming[0] || null;
     renderHomeNextUpcoming(upcoming[1] || null);
-    if(!next){ box.innerHTML = ''; renderKeyChecks(null); return; }
+    if(!next){ box.innerHTML = ''; setHeaderClock(null); renderKeyChecks(null); return; }
     const now = new Date();
     const live = now>=next.start && (!next.end || now<=next.end);
     let cls = 'clock-ok';
@@ -5294,7 +5321,23 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       '<div class="session-clock-time '+cls+'">'+(live && next.end ? 'fin dans '+timeStr : timeStr)+'</div>'+
       '<div class="session-clock-sub">'+(flagEmoji(next.ev.country)?flagEmoji(next.ev.country)+' ':'')+next.ev.label+' - '+fmtDate(next.t.date||next.ev.date)+(next.t.startTime?' '+next.t.startTime:'')+'</div>'+
     '</div>';
+    setHeaderClock({label:label, time:(live && next.end ? 'fin dans '+timeStr : timeStr), cls:cls, ev:next.ev, t:next.t});
     renderKeyChecks(next.ev.id+'::'+next.t.id);
+  }
+  // Rappel du decompte dans le bandeau, visible depuis n'importe quel onglet.
+  // Alimente par renderSessionClock pour ne pas dupliquer le calcul.
+  function setHeaderClock(info){
+    const el = document.getElementById('hdrClock');
+    const wrap = document.getElementById('hdrMeeting');
+    if(!el) return;
+    if(!info){ el.innerHTML=''; if(wrap) wrap.style.visibility='hidden'; return; }
+    if(wrap) wrap.style.visibility='';
+    const esc = (x)=>(x==null?'':String(x)).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const quand = fmtDate(info.t.date||info.ev.date)+(info.t.startTime?' '+info.t.startTime:'');
+    el.innerHTML = '<span class="hdr-clock-name">'+esc(info.label)+'</span>'+
+      '<span class="hdr-clock-time '+info.cls+'">'+esc(info.time)+'</span>'+
+      '<span class="hdr-clock-ev" title="'+esc(info.ev.label)+' - '+esc(quand)+'">'+
+        (flagEmoji(info.ev.country)?flagEmoji(info.ev.country)+' ':'')+esc(info.ev.label)+' - '+esc(quand)+'</span>';
   }
   const KEY_CHECK_ITEMS = [
     {key:'warm', label:'Warm-up', match:'warm'},
