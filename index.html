@@ -4810,17 +4810,17 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       groups[0].bars.push({label:d, color:col, value:kpiAvg(own,'fuelLap')});
       groups[1].bars.push({label:d, color:col, value:kpiAvg(ownRep,'fuelCross')});
     });
-    h+='<div class="kpi-card kpi-card-wide"><h4>Consommation moyenne par pilote</h4>'+svgBarChart(groups,{yFmt:v=>v.toFixed(3)})+'</div>';
+    h+='<div class="kpi-card"><h4>Consommation moyenne par pilote</h4>'+svgBarChart(groups,{yFmt:v=>v.toFixed(3)})+'</div>';
     // Nombre de tours retenus par pilote, pour lire la representativite
     const cnt=[{label:'Tours retenus (conso)', bars:a.drivers.map((d,i)=>({label:d, color:driverColor(d)||KPI_PALETTE[i%KPI_PALETTE.length], value:a.fuelLaps.filter(l=>(l.driver||'(?)')===d).length}))},
                {label:'Tours représentatifs', bars:a.drivers.map((d,i)=>({label:d, color:driverColor(d)||KPI_PALETTE[i%KPI_PALETTE.length], value:a.rep.filter(l=>(l.driver||'(?)')===d).length}))}];
-    h+='<div class="kpi-card kpi-card-wide"><h4>Tours pris en compte</h4>'+svgBarChart(cnt,{yFmt:v=>v.toFixed(0)})+'</div>';
+    h+='<div class="kpi-card"><h4>Tours pris en compte</h4>'+svgBarChart(cnt,{yFmt:v=>v.toFixed(0)})+'</div>';
     // Evolution tour par tour
     const s1=[{label:'Conso / tour [L]', color:KPI_PALETTE[0], points:a.rep.map(l=>({x:l.idx, y:(l.ch.fuelLap!=null?l.ch.fuelLap:null)}))}];
     const hl=(a.fuelMax!=null)?[{y:a.fuelMax, label:'max '+a.fuelMax.toFixed(2), color:'#e05555'},{y:a.fuelMax*fc, label:'seuil '+(a.fuelMax*fc).toFixed(2), color:'#f2d24b'}]:[];
-    h+='<div class="kpi-card kpi-card-wide"><h4>Consommation tour par tour</h4>'+svgLineChart(s1,{yFmt:v=>v.toFixed(2), hlines:hl})+'</div>';
+    h+='<div class="kpi-card"><h4>Consommation tour par tour</h4>'+svgLineChart(s1,{yFmt:v=>v.toFixed(2), hlines:hl})+'</div>';
     const s2=[{label:'Conso due au chevauchement [L]', color:KPI_PALETTE[1], points:a.rep.map(l=>({x:l.idx, y:(l.ch.fuelCross!=null?l.ch.fuelCross:null)}))}];
-    h+='<div class="kpi-card kpi-card-wide"><h4>Consommation due au chevauchement de pédales</h4>'+svgLineChart(s2,{yFmt:v=>v.toFixed(3)})+'</div>';
+    h+='<div class="kpi-card"><h4>Consommation due au chevauchement de pédales</h4>'+svgLineChart(s2,{yFmt:v=>v.toFixed(3)})+'</div>';
     return h;
   }
   function kpiMinMax(laps, key){
