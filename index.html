@@ -312,6 +312,15 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .kpi-cfg-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;}
 /* Les references saisies se distinguent des valeurs mesurees */
 .kpi-ref-col{color:var(--muted);font-style:italic;border-left:1px solid var(--border);}
+/* Documents par evenement */
+.docs-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:14px;}
+.docs-warn{margin-top:12px;padding:10px 12px;border-radius:8px;background:#3a2a10;border:1px solid #7a5a1c;color:#f0dcae;font-size:12.5px;}
+.docs-table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13px;}
+.docs-table th{text-align:left;font-weight:600;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--border);}
+.docs-table td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,0.05);vertical-align:top;}
+.docs-table a{color:var(--accent);text-decoration:none;font-weight:600;}
+.docs-table a:hover{text-decoration:underline;}
+.docs-meta{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--muted);font-size:10.5px;font-weight:600;}
 .rs-tyre-jete{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;background:#7a1d18;color:#ffd9d6;font-size:10.5px;font-weight:700;text-transform:uppercase;}
 .kpi-note{font-size:12.5px;color:var(--text);padding:9px 12px;}
 .kpi-ref-src{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:10px;}
@@ -623,6 +632,7 @@ body.auth-locked #authGate{ display:flex; }
   <button data-tab="setup">Setup</button>
   <button data-tab="runsheet">Run Sheet</button>
   <button data-tab="calendar">Calendrier</button>
+  <button data-tab="docs">Documents</button>
   <button data-tab="io" class="active">Import / Export</button>
 </nav>
 
@@ -1191,6 +1201,21 @@ body.auth-locked #authGate{ display:flex; }
 </section>
 
 <!-- TAB: IMPORT / EXPORT -->
+<section class="tab" id="tab-docs">
+  <div class="card">
+    <div class="measure-context-row">
+      <label>Evenement <select id="docsEventSelect"></select></label>
+    </div>
+    <div class="subtabs" id="docsSubtabs">
+      <button data-dcat="teams" class="active">Teams</button>
+      <button data-dcat="tech">Techniques</button>
+      <button data-dcat="info">Informations</button>
+    </div>
+    <input type="file" id="docsFileInput" accept="application/pdf,.pdf" style="display:none;">
+    <div id="docsContent"></div>
+  </div>
+</section>
+
 <section class="tab active" id="tab-io">
   <div class="card">
     <h3>Comment se transmettre le suivi entre ingenieurs</h3>
@@ -1311,6 +1336,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(!data.circuits || typeof data.circuits!=='object') data.circuits = deepClone(SEED.circuits||{});
     // KPI : par evenement, les sessions importees depuis un CSV Wintax
     if(!data.kpi || typeof data.kpi!=='object') data.kpi = {};
+    // Documents : par evenement, les PDF et liens classes par categorie
+    if(!data.docs || typeof data.docs!=='object') data.docs = {};
     if(!Array.isArray(data.stockCategories)) data.stockCategories = deepClone(SEED.stockCategories||[]);
     ['disc','bell','pad'].forEach(key=>{ const cat=data.stockCategories.find(c=>c.key===key); if(cat && (!Array.isArray(cat.positions) || !cat.positions.length)) cat.positions = ['L','R']; });
     if(!Array.isArray(data.stockItems)) data.stockItems = deepClone(SEED.stockItems||[]);
@@ -8385,8 +8412,171 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
   wireHomeStaticEvents();
 
+  // ---------- DOCUMENTS ----------
+  // Les fichiers vont dans Supabase Storage, jamais dans l'etat partage : celui-ci
+  // est relu par chaque poste toutes les 15 s, un seul PDF en base64 le doublerait.
+  // L'etat ne garde que la fiche du document (titre, chemin, lien).
+  const DOC_BUCKET='documents';
+  const DOC_CATS=[['teams','Teams'],['tech','Techniques'],['info','Informations']];
+  const DOC_MAX_MO=25;
+  let activeDocCat='teams';
+  let docsBucketManquant=false;
+
+  function docsForEvent(ev, create){
+    if(!ev) return [];
+    if(!STATE.docs[ev.id]){ if(!create) return []; STATE.docs[ev.id]=[]; }
+    return STATE.docs[ev.id];
+  }
+  function docEventObj(){
+    return (STATE.mlmcEvents||[]).find(e=>String(e.id)===String(selectedDocContext.eventId)) || null;
+  }
+  const selectedDocContext={eventId:''};
+
+  function fmtOctets(n){
+    if(n==null) return '';
+    if(n<1024) return n+' o';
+    if(n<1024*1024) return Math.round(n/1024)+' Ko';
+    return (n/1024/1024).toFixed(1)+' Mo';
+  }
+  function docCurrentUser(){
+    try{ const k=Object.keys(localStorage).find(x=>x.startsWith('sb-'));
+      const v=JSON.parse(localStorage.getItem(k)||'{}');
+      return (v.user&&v.user.email)||''; }catch(e){ return ''; }
+  }
+  // Un PDF stocke n'a pas d'URL permanente : le bucket est prive, on signe a la demande
+  async function docOpen(d){
+    if(d.url){ window.open(d.url,'_blank','noopener'); return; }
+    if(!d.path){ alert('Ce document n\'a ni fichier ni lien.'); return; }
+    if(!sbClient){ alert('Connexion requise pour ouvrir un fichier stocké.'); return; }
+    try{
+      const { data, error } = await sbClient.storage.from(DOC_BUCKET).createSignedUrl(d.path, 120);
+      if(error) throw error;
+      window.open(data.signedUrl,'_blank','noopener');
+    }catch(err){
+      alert('Ouverture impossible.\n\n'+((err&&err.message)||err));
+    }
+  }
+  async function docUpload(file, ev){
+    if(!sbClient) throw new Error('Connexion requise pour envoyer un fichier.');
+    const mo=file.size/1024/1024;
+    if(mo>DOC_MAX_MO) throw new Error('Fichier trop volumineux ('+mo.toFixed(1)+' Mo). Limite fixée à '+DOC_MAX_MO+' Mo.');
+    // Nom neutralise : Storage refuse les accents et les espaces dans les chemins
+    const propre=file.name.normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9._-]/g,'_');
+    const path='event-'+ev.id+'/'+Date.now()+'_'+propre;
+    const { error } = await sbClient.storage.from(DOC_BUCKET).upload(path, file, {contentType:file.type||'application/pdf', upsert:false});
+    if(error) throw error;
+    return {path:path, fileName:file.name, size:file.size};
+  }
+  function renderDocsTab(){
+    const sel=document.getElementById('docsEventSelect'); if(!sel) return;
+    if(!selectedDocContext.eventId){
+      const next=findNextOfficialSessionDT();
+      selectedDocContext.eventId = next ? String(next.ev.id) : String(((STATE.mlmcEvents||[])[0]||{}).id||'');
+    }
+    sel.innerHTML=eventSelectOptions(selectedDocContext.eventId);
+    document.querySelectorAll('#docsSubtabs button').forEach(b=>b.classList.toggle('active', b.dataset.dcat===activeDocCat));
+    const box=document.getElementById('docsContent'); const ev=docEventObj();
+    if(!ev){ box.innerHTML='<div class="small" style="margin-top:12px;">Choisissez un évènement.</div>'; return; }
+    const esc=(x)=>(x==null?'':String(x)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    const tous=docsForEvent(ev,false);
+    const liste=tous.filter(d=>d.cat===activeDocCat);
+    let h='<div class="docs-toolbar">'+
+      '<button class="primary" id="docAddFileBtn">Ajouter un PDF</button>'+
+      '<button class="secondary" id="docAddLinkBtn">Ajouter un lien</button>'+
+      '<span class="small">'+liste.length+' document'+(liste.length>1?'s':'')+' — '+
+        DOC_CATS.filter(c=>c[0]===activeDocCat).map(c=>c[1])+'</span>'+
+      '</div>';
+    if(docsBucketManquant){
+      h+='<div class="docs-warn">L\'espace de stockage des fichiers n\'existe pas encore sur Supabase : '+
+         'les <b>liens</b> fonctionnent, l\'envoi de PDF non. Il faut créer un bucket nommé <code>'+DOC_BUCKET+'</code>.</div>';
+    }
+    if(!liste.length){
+      h+='<div class="small" style="margin-top:14px;">Aucun document dans cette catégorie pour cet évènement.</div>';
+    } else {
+      h+='<table class="docs-table"><thead><tr><th>Document</th><th>Note</th><th>Ajouté</th><th></th></tr></thead><tbody>';
+      liste.forEach(d=>{
+        const i=tous.indexOf(d);
+        const meta=d.url?'lien':(fmtOctets(d.size)||'PDF');
+        h+='<tr>'+
+          '<td><a href="#" class="docOpen" data-i="'+i+'">'+esc(d.title||d.fileName||'(sans titre)')+'</a>'+
+            '<span class="docs-meta">'+esc(meta)+'</span></td>'+
+          '<td class="small">'+esc(d.note||'')+'</td>'+
+          '<td class="small">'+esc(fmtDate((d.addedAt||'').slice(0,10)))+(d.addedBy?'<br>'+esc(d.addedBy):'')+'</td>'+
+          '<td><button class="danger small docDel" data-i="'+i+'" title="Supprimer">&times;</button></td>'+
+        '</tr>';
+      });
+      h+='</tbody></table>';
+    }
+    box.innerHTML=h;
+    bindDocsUI(ev);
+  }
+  function bindDocsUI(ev){
+    const add=document.getElementById('docAddFileBtn');
+    if(add) add.addEventListener('click', ()=>{ const i=document.getElementById('docsFileInput'); if(i){ i.value=''; i.click(); } });
+    const lien=document.getElementById('docAddLinkBtn');
+    if(lien) lien.addEventListener('click', ()=>{
+      const url=prompt('Adresse du document (Teams, SharePoint, OneDrive, site...) :');
+      if(!url) return;
+      const u=String(url).trim();
+      if(!/^https?:\/\//i.test(u)){ alert('Le lien doit commencer par http:// ou https://'); return; }
+      const titre=prompt('Titre du document :', '')||u;
+      const note=prompt('Note (facultatif) :', '')||'';
+      docsForEvent(ev,true).push({id:Date.now(), cat:activeDocCat, title:titre.trim(), url:u, note:note.trim(),
+        addedAt:new Date().toISOString(), addedBy:docCurrentUser()});
+      saveState(); renderDocsTab();
+    });
+    document.querySelectorAll('.docOpen').forEach(a=>a.addEventListener('click', e=>{
+      e.preventDefault(); docOpen(docsForEvent(ev,false)[Number(a.dataset.i)]);
+    }));
+    document.querySelectorAll('.docDel').forEach(b=>b.addEventListener('click', async ()=>{
+      const arr=docsForEvent(ev,false), d=arr[Number(b.dataset.i)]; if(!d) return;
+      if(!confirm('Supprimer "'+(d.title||d.fileName)+'" ?'+(d.path?'\n\nLe fichier sera aussi retiré du stockage.':''))) return;
+      if(d.path && sbClient){
+        try{ await sbClient.storage.from(DOC_BUCKET).remove([d.path]); }
+        catch(err){ /* la fiche part quand meme : un fichier orphelin vaut mieux qu'une fiche fantome */ }
+      }
+      arr.splice(Number(b.dataset.i),1);
+      saveState(); renderDocsTab();
+    }));
+  }
+  (function(){
+    const s=document.getElementById('docsEventSelect');
+    if(s) s.addEventListener('change', e=>{ selectedDocContext.eventId=e.target.value; renderDocsTab(); });
+    document.querySelectorAll('#docsSubtabs button').forEach(b=>b.addEventListener('click', ()=>{ activeDocCat=b.dataset.dcat; renderDocsTab(); }));
+    const inp=document.getElementById('docsFileInput');
+    if(inp) inp.addEventListener('change', async ()=>{
+      const f=inp.files && inp.files[0]; if(!f) return;
+      const ev=docEventObj(); if(!ev){ alert('Choisissez d\'abord un évènement.'); return; }
+      const btn=document.getElementById('docAddFileBtn');
+      if(btn){ btn.disabled=true; btn.textContent='Envoi...'; }
+      try{
+        const up=await docUpload(f, ev);
+        const titre=prompt('Titre du document :', f.name.replace(/\.pdf$/i,''))||f.name;
+        const note=prompt('Note (facultatif) :', '')||'';
+        docsForEvent(ev,true).push({id:Date.now(), cat:activeDocCat, title:titre.trim(), path:up.path,
+          fileName:up.fileName, size:up.size, note:note.trim(),
+          addedAt:new Date().toISOString(), addedBy:docCurrentUser()});
+        docsBucketManquant=false;
+        saveState(); renderDocsTab();
+      }catch(err){
+        const msg=(err&&err.message)||String(err);
+        if(/bucket/i.test(msg) && /not.*found|exist/i.test(msg)){
+          docsBucketManquant=true;
+          alert('Envoi impossible : l\'espace de stockage "'+DOC_BUCKET+'" n\'existe pas encore sur Supabase.\n\nEn attendant, utilisez "Ajouter un lien".');
+        } else {
+          alert('Envoi impossible.\n\n'+msg);
+        }
+        renderDocsTab();
+      }finally{
+        const b2=document.getElementById('docAddFileBtn');
+        if(b2){ b2.disabled=false; b2.textContent='Ajouter un PDF'; }
+      }
+    });
+  })();
+
   function renderAll(){
     renderHeader();
+    renderDocsTab();
     renderHome();
     renderHomeTodoList();
     renderSessionClock();
