@@ -4,8 +4,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RedAnt LMP3 - P3-#366</title>
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <meta name="theme-color" content="#0f1720">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -312,6 +312,7 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .kpi-cfg-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;}
 /* Les references saisies se distinguent des valeurs mesurees */
 .kpi-ref-col{color:var(--muted);font-style:italic;border-left:1px solid var(--border);}
+.rs-tyre-jete{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;background:#7a1d18;color:#ffd9d6;font-size:10.5px;font-weight:700;text-transform:uppercase;}
 .kpi-note{font-size:12.5px;color:var(--text);padding:9px 12px;}
 .kpi-ref-src{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:10px;}
 .kpi-ref-src input{flex:1 1 auto;max-width:340px;padding:4px 8px;font-size:12px;}
@@ -3858,12 +3859,24 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const addTyreBtn=box.querySelector('#rsAddTyreBtn');
     if(addTyreBtn) addTyreBtn.addEventListener('click', ()=>openTyrePickerModal(ev));
   }
+  // Un train est jete quand ses 4 pneus le sont : un train partiellement jete
+  // reste utilisable et doit rester proposable.
+  function tyreSetDiscarded(group){
+    const items=Object.keys(group||{}).map(p=>group[p]).filter(Boolean);
+    return items.length>0 && items.every(i=>i.status==='jetee');
+  }
   function openTyrePickerModal(ev){
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
-    const codes=Object.keys(groupSetsByCode('tyre')).sort();
+    const groups=groupSetsByCode('tyre');
+    // Les trains jetes ne sont plus proposables. On garde toutefois ceux qui sont
+    // deja rattaches a l'event : sans leur case a cocher, valider la fenetre les
+    // retirerait de l'event sans que personne ne l'ait demande.
+    const codes=Object.keys(groups).filter(c=>!tyreSetDiscarded(groups[c]) || ev.tyreSets.some(t=>t.code===c)).sort();
+    const jetes=Object.keys(groups).filter(c=>tyreSetDiscarded(groups[c]) && !ev.tyreSets.some(t=>t.code===c)).length;
     const overlay=document.createElement('div'); overlay.className='rs-modal-overlay';
     overlay.innerHTML='<div class="rs-modal"><div class="rs-modal-head"><b>Inventaire pneus — cocher pour ajouter a l\'event</b><button class="modal-close" id="rsTyreClose">&times;</button></div>'+
-      '<div class="rs-modal-body">'+(codes.length?codes.map(c=>'<label class="rs-check-row"><input type="checkbox" class="rsPickTyre" value="'+esc(c)+'" '+(ev.tyreSets.some(t=>t.code===c)?'checked':'')+'> '+tyreSetLabel(c)+'</label>').join(''):'<div class="small">Aucun set de pneus en stock (onglet Voiture &gt; Stock &gt; Pneus).</div>')+'</div>'+
+      '<div class="rs-modal-body">'+(codes.length?codes.map(c=>'<label class="rs-check-row"><input type="checkbox" class="rsPickTyre" value="'+esc(c)+'" '+(ev.tyreSets.some(t=>t.code===c)?'checked':'')+'> '+tyreSetLabel(c)+(tyreSetDiscarded(groups[c])?' <span class="rs-tyre-jete">jeté</span>':'')+'</label>').join(''):'<div class="small">Aucun set de pneus disponible (onglet Voiture &gt; Stock &gt; Pneus).</div>')+
+      (jetes?'<div class="small" style="margin-top:8px;">'+jetes+' train'+(jetes>1?'s':'')+' jeté'+(jetes>1?'s':'')+' ne '+(jetes>1?'sont':'est')+' pas proposé'+(jetes>1?'s':'')+'.</div>':'')+'</div>'+
       '<div class="rs-modal-foot"><button class="primary" id="rsTyreOk">Valider</button></div></div>';
     document.body.appendChild(overlay);
     const close=()=>overlay.remove();

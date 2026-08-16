@@ -1,10 +1,12 @@
-const CACHE_NAME = 'redant-lmp3-shell-v2';
+// v3 : les icones etaient referencees sous icons/, dossier inexistant - le cache
+// precedent contient donc un shell incomplet, il faut le remplacer.
+const CACHE_NAME = 'redant-lmp3-shell-v3';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.json',
-  './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icon-192.png',
+  './icon-512.png'
 ];
 
 self.addEventListener('install', (event) => {
