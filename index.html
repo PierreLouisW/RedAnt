@@ -4519,7 +4519,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const manquants=KPI_CH.filter((c,k)=>cols[k][1]<0).map(c=>c[1]);
     const bySess={};
     p.rows.forEach(r=>{
-      const name=(iSess>=0?String(r[iSess]||'').trim():'')||'Session';
+      const brut=(iSess>=0?String(r[iSess]||'').trim():'');
+      const pilote=(iDrv>=0?String(r[iDrv]||'').trim():'');
+      // Une ligne sans session, sans pilote et sans temps est du remplissage
+      // (colonnes de service d'un classeur, lignes vides d'un export) : l'ignorer
+      // evite de stocker des centaines de tours fantomes.
+      if(!brut && !pilote && kpiNum(r[iTime])==null) return;
+      const name=brut||'Session';
       if(!bySess[name]) bySess[name]={name:name, carName:(iCar>=0?String(r[iCar]||''):''), trackLen:(iLen>=0?kpiNum(r[iLen]):null), laps:[]};
       const s=bySess[name];
       const lap={ idx:s.laps.length+1,
