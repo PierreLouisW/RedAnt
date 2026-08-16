@@ -289,6 +289,7 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .kpi-cfg-table th{text-align:left;font-weight:600;color:var(--muted);padding:4px 6px;border-bottom:1px solid var(--border);}
 .kpi-cfg-table td{padding:3px 6px;border-bottom:1px solid rgba(255,255,255,0.05);overflow-wrap:anywhere;white-space:normal;}
 .kpi-card{overflow-x:auto;}
+.kpi-cfg-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;}
 .kpi-cfg-table td.small{font-size:11.5px;line-height:1.35;}
 .kpi-cfg-table input{width:100%;max-width:92px;padding:3px 6px;box-sizing:border-box;}
 @media (max-width:900px){ .kpi-grid{grid-template-columns:1fr;} }
@@ -4593,7 +4594,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       // Les seuils se preparent avant la premiere session : on laisse l'acces aux reglages
       activeKpiFamily='cfg';
       h+='<div class="small" style="margin-top:12px;">Aucune donnée KPI pour cet évènement. Importez l\'export CSV Wintax d\'une session (une ligne par tour) : les sessions du fichier sont créées automatiquement d\'après la colonne <b>SessionName</b>.</div>';
-      h+=famTabs(false)+kpiSettingsPanel(cfg, []);
+      h+=famTabs(false)+kpiSettingsPanel(cfg, [], ev);
       box.innerHTML=h; kpiBindToolbar(ev); return;
     }
     if(activeKpiFamily==='cfg' && !names.length) activeKpiFamily='fiab';
@@ -4617,7 +4618,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     h+='</div>';
     h+='<div class="small" style="margin-top:6px;">Tours retenus : entre le meilleur tour et '+cfg.laptimeCoef+' × celui-ci. Conso retenue : entre '+cfg.fuelCoef+' × et 1 × le maximum de la session.</div>';
     h+=famTabs(true);
-    if(activeKpiFamily==='cfg'){ h+=kpiSettingsPanel(cfg, names); box.innerHTML=h; kpiBindToolbar(ev); return; }
+    if(activeKpiFamily==='cfg'){ h+=kpiSettingsPanel(cfg, names, ev); box.innerHTML=h; kpiBindToolbar(ev); return; }
     h+='<div class="kpi-grid">';
     if(activeKpiFamily==='fuel'){
       h+=kpiFuelCards(a, cfg);
@@ -4633,9 +4634,23 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     box.innerHTML=h;
     kpiBindToolbar(ev);
   }
+  // L'evenement anterieur le plus proche ayant deja des reglages : la voiture ne
+  // changeant pas d'une manche a l'autre, on recopie plutot que de tout resaisir.
+  function kpiPreviousConfigEvent(ev){
+    if(!ev) return null;
+    const cur=String(ev.date||'');
+    return (STATE.mlmcEvents||[])
+      .filter(e=>{
+        if(String(e.id)===String(ev.id)) return false;
+        const st=STATE.kpi[e.id];
+        if(!st || !st.config) return false;
+        return cur ? (String(e.date||'') < cur) : true;
+      })
+      .sort((a,b)=> String(a.date||'')<String(b.date||'')?1:-1)[0] || null;
+  }
   // Equivalent de la feuille "Car&Event Info" : seuils voiture et coefficients,
   // propres a l'evenement (comme un classeur par event copie du Template).
-  function kpiSettingsPanel(cfg, names){
+  function kpiSettingsPanel(cfg, names, ev){
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
     const val=(v)=>(v==null||v==='')?'':esc(v);
     const inp=(key,bound,v)=>'<input type="number" step="any" class="kpi-cfg" data-kind="limit" data-key="'+key+'" data-bound="'+bound+'" value="'+val(v)+'">';
@@ -4653,7 +4668,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     });
     h+='</tbody></table>'+
        '<div class="small" style="margin-top:8px;">Ces seuils sont tracés en pointillé sur les graphiques de fiabilité. Laisser vide retire la ligne.</div>'+
-       '<button class="small" id="kpiCfgReset" style="margin-top:8px;">Revenir aux valeurs par défaut</button></div>';
+       '<div class="kpi-cfg-actions">';
+    const prev=kpiPreviousConfigEvent(ev);
+    if(prev) h+='<button class="small" id="kpiCfgCopyPrev" data-from="'+esc(prev.id)+'">Reprendre les réglages de : '+esc(prev.label||fmtDate(prev.date))+'</button>';
+    else h+='<span class="small">Aucun évènement antérieur n\'a de réglages enregistrés.</span>';
+    h+='<button class="small" id="kpiCfgReset">Revenir aux valeurs par défaut</button></div></div>';
     h+='<div class="kpi-card"><h4>Coefficients de l\'évènement</h4>'+
        '<table class="kpi-cfg-table"><colgroup><col style="width:33%"><col style="width:22%"><col style="width:45%"></colgroup><tbody>'+
        '<tr><td>Laptime Coefficient</td><td><input type="number" step="any" class="kpi-cfg" data-kind="coef" data-key="laptimeCoef" value="'+val(cfg.laptimeCoef)+'"></td><td class="small">tour retenu si &lt; meilleur tour × ce coefficient</td></tr>'+
@@ -4736,6 +4755,17 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       }
       saveState(); renderResumeTab();
     }));
+    const copyPrev=document.getElementById('kpiCfgCopyPrev');
+    if(copyPrev) copyPrev.addEventListener('click', ()=>{
+      const src=(STATE.mlmcEvents||[]).find(e=>String(e.id)===String(copyPrev.dataset.from));
+      const from=src?STATE.kpi[src.id]:null;
+      if(!from || !from.config){ alert('Les réglages de cet évènement sont introuvables.'); renderResumeTab(); return; }
+      if(!confirm('Reprendre les réglages de "'+(src.label||'')+'" ?\n\nLes limites voiture et les coefficients de cet évènement seront remplacés. Le carburant par session, propre à chaque manche, n\'est pas repris.')) return;
+      const c=kpiConfig(ev, true), s=from.config;
+      c.limits=deepClone(s.limits||{});
+      c.laptimeCoef=s.laptimeCoef; c.fuelCoef=s.fuelCoef; c.tyreTarget=s.tyreTarget;
+      saveState(); renderResumeTab();
+    });
     const reset=document.getElementById('kpiCfgReset');
     if(reset) reset.addEventListener('click', ()=>{
       if(!confirm('Remettre tous les seuils voiture aux valeurs par défaut du classeur ?')) return;
