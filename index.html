@@ -292,6 +292,7 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .kpi-cfg-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;}
 /* Les references saisies se distinguent des valeurs mesurees */
 .kpi-ref-col{color:var(--muted);font-style:italic;border-left:1px solid var(--border);}
+.kpi-note{font-size:12.5px;color:var(--text);padding:9px 12px;}
 .kpi-ref-src{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:10px;}
 .kpi-ref-src input{flex:1 1 auto;max-width:340px;padding:4px 8px;font-size:12px;}
 .kpi-cfg-table td.small{font-size:11.5px;line-height:1.35;}
@@ -4270,6 +4271,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // Un seuil hors echelle serait invisible, alors que c'est justement la marge
     // qui interesse : on etend l'echelle pour qu'il reste toujours visible.
     (opts.hlines||[]).forEach(h=>{ if(h.y!=null) allY.push(h.y); });
+    // Sur un graphique signe, le zero est la reference a lire : on le garde en vue
+    // meme si toutes les valeurs sont du meme cote.
+    if(opts.polarity) allY.push(0);
     const xMin=(opts.xMin!=null)?opts.xMin:Math.min.apply(null,allX), xMax=(opts.xMax!=null)?opts.xMax:Math.max.apply(null,allX);
     let yMin=Math.min.apply(null,allY), yMax=Math.max.apply(null,allY);
     if(yMin===yMax){ yMin-=1; yMax+=1; } const ypad=(yMax-yMin)*0.08; yMin-=ypad; yMax+=ypad;
@@ -4298,6 +4302,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
              '<text x="'+(tx+tw/2).toFixed(1)+'" y="'+(ty+9.5).toFixed(1)+'" fill="#fff" font-size="9.5" font-weight="700" text-anchor="middle">'+esc(h.label)+'</text>';
       }
     });
+    // Graphique signe : ligne de zero et rappel de ce que veut dire chaque cote
+    if(opts.polarity && 0>=yMin && 0<=yMax){
+      const y0=py(0);
+      svg+='<line x1="'+padL+'" y1="'+y0.toFixed(1)+'" x2="'+(W-padR)+'" y2="'+y0.toFixed(1)+'" stroke="rgba(255,255,255,0.35)" stroke-width="1.4"/>';
+      if(opts.polarity.pos) svg+='<text x="'+(padL+6)+'" y="'+(padT+12)+'" fill="#9aa4af" font-size="10">↑ '+esc(opts.polarity.pos)+'</text>';
+      if(opts.polarity.neg) svg+='<text x="'+(padL+6)+'" y="'+(H-padB-6)+'" fill="#9aa4af" font-size="10">↓ '+esc(opts.polarity.neg)+'</text>';
+    }
     series.forEach(s=>{ const pts=s.points.filter(p=>p.y!=null).slice().sort((a,b)=>a.x-b.x); if(!pts.length) return;
       const d=pts.map((p,i)=>(i?'L':'M')+px(p.x).toFixed(1)+' '+py(p.y).toFixed(1)).join(' ');
       svg+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="2"/>';
@@ -4661,6 +4672,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {title:'Limiter Hit', key:'limiterHit', dec:3},
     {title:'Steer Attack', key:'steerAttack', dec:1}
   ];
+  // Convention des canaux Balance_* de WinTAX, confirmee par l'equipe
+  const KPI_BALANCE_POLARITY={pos:'survirage', neg:'sous-virage'};
   const KPI_BALANCE=[
     {title:'Corner Balance', key:'balCorner'}, {title:'High Speed', key:'balHS'},
     {title:'Mid Speed', key:'balMS'}, {title:'Low Speed', key:'balLS'},
@@ -4689,7 +4702,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       points:laps.map(l=>({x:l.idx, y:(l.ch[s[0]]!=null?l.ch[s[0]]:null)}))
     })).filter(s=>s.points.some(p=>p.y!=null));
     const body=series.length
-      ? svgLineChart(series, {yFmt:v=>v.toFixed(spec.dec==null?1:spec.dec), xLabel:'Tour', hlines:kpiLimitLines(cfg, spec.lim)})
+      ? svgLineChart(series, {yFmt:v=>v.toFixed(spec.dec==null?1:spec.dec), xLabel:'Tour', hlines:kpiLimitLines(cfg, spec.lim), polarity:spec.polarity})
       // On ne sait pas ici distinguer une colonne absente d'une colonne remplie
       // de tirets : le bilan des canaux manquants est donne a l'import.
       : '<div class="small">Aucune valeur pour ce canal dans cette session.</div>';
@@ -4760,8 +4773,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         h+=kpiChartCard({title:spec.title, dec:spec.dec, series:[[spec.key,spec.title]]}, a.rep.length?a.rep:a.laps, cfg);
       });
     } else if(activeKpiFamily==='bal'){
+      h+='<div class="kpi-card kpi-card-wide kpi-note"><b>Convention :</b> valeur négative = <b>sous-virage</b>, positive = <b>survirage</b>. La ligne claire marque le neutre.</div>';
       KPI_BALANCE.forEach(spec=>{
-        h+=kpiChartCard({title:spec.title, dec:2, series:[[spec.key,spec.title]]}, a.rep.length?a.rep:a.laps, cfg);
+        h+=kpiChartCard({title:spec.title, dec:2, series:[[spec.key,spec.title]], polarity:KPI_BALANCE_POLARITY}, a.rep.length?a.rep:a.laps, cfg);
       });
       h+=kpiBalanceSummary(a);
     } else {
@@ -4944,7 +4958,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       bars:a.drivers.map((d,i)=>({label:d, color:driverColor(d)||KPI_PALETTE[i%KPI_PALETTE.length],
         value:kpiAvg(a.rep.filter(l=>(l.driver||'(?)')===d), spec.key)}))
     }));
-    return '<div class="kpi-card kpi-card-wide"><h4>Synthèse balance par pilote</h4>'+svgBarChart(groups,{yFmt:v=>v.toFixed(2), height:340})+'</div>';
+    return '<div class="kpi-card kpi-card-wide"><h4>Synthèse balance par pilote</h4>'+
+      svgBarChart(groups,{yFmt:v=>v.toFixed(2), height:340})+
+      '<div class="small" style="margin-top:6px;">Barres sous la ligne de zéro : sous-virage. Au-dessus : survirage.</div></div>';
   }
   function kpiBindToolbar(ev){
     const imp=document.getElementById('kpiImportBtn');
