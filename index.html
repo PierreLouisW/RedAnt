@@ -290,6 +290,8 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .kpi-cfg-table td{padding:3px 6px;border-bottom:1px solid rgba(255,255,255,0.05);overflow-wrap:anywhere;white-space:normal;}
 .kpi-card{overflow-x:auto;}
 .kpi-cfg-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;}
+/* Les references saisies se distinguent des valeurs mesurees */
+.kpi-ref-col{color:var(--muted);font-style:italic;border-left:1px solid var(--border);}
 .kpi-cfg-table td.small{font-size:11.5px;line-height:1.35;}
 .kpi-cfg-table input{width:100%;max-width:92px;padding:3px 6px;box-sizing:border-box;}
 @media (max-width:900px){ .kpi-grid{grid-template-columns:1fr;} }
@@ -4351,6 +4353,25 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {key:'vBatt', label:'vBatt AVG', unit:'V', target:14},
     {key:'airComp', label:'Air Comp pressure AVG', unit:'bar', target:6}
   ];
+  // Bloc "KPI DATA" du classeur : ce sont des references saisies a la main, pas
+  // des valeurs calculees (les cellules d'origine ne portent aucune formule).
+  // Reprises telles quelles comme point de depart, modifiables ensuite.
+  const KPI_REF_DEFAULTS={
+    kerbUse:{min:1.2628, avg:1.8162, max:4.9629},
+    steerAttack:{min:49.7234, avg:71.8871, max:82.2162},
+    brakeLocking:{min:19.9135, avg:25.1312, max:31.9463},
+    crossPedals:{min:0.9442, avg:3.5779, max:6.4482},
+    wheelSpin:{min:43.2411, avg:59.8080, max:72.1929},
+    clutchSlip:{min:38.9722, avg:53.0214, max:88.9269},
+    pedalAttack:{min:18.7604, avg:21.4179, max:22.7708},
+    brakeAttack:{min:6.4199, avg:7.8867, max:9.9877},
+    brakeRelease:{min:10.1404, avg:11.7987, max:13.6987},
+    limiterHit:{min:0.006025, avg:0.013300, max:0.036682},
+    coasting:{min:3.6637, avg:5.0289, max:7.0356},
+    fullThrottle:{min:35.7870, avg:44.4528, max:48.1678},
+    accCombined:{min:44.9723, avg:47.1810, max:49.8150},
+    pBrakeTotal:{min:97.4803, avg:103.4612, max:115.0791}
+  };
   function kpiDefaultConfig(){
     const limits={};
     KPI_LIMIT_FIELDS.forEach(f=>{
@@ -4360,7 +4381,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       if(f.target!=null) o.target=f.target;
       limits[f.key]=o;
     });
-    return {limits:limits, laptimeCoef:KPI_LAPTIME_COEF, fuelCoef:KPI_FUEL_COEF, tyreTarget:1.75, fuel:{}};
+    return {limits:limits, laptimeCoef:KPI_LAPTIME_COEF, fuelCoef:KPI_FUEL_COEF, tyreTarget:1.75,
+            fuel:{}, kpiRef:deepClone(KPI_REF_DEFAULTS)};
   }
   // Config de l'evenement, creee a la volee et completee si des champs manquent
   // (un event importe avant l'ajout d'un seuil ne doit pas perdre ses graphiques).
@@ -4377,6 +4399,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(c.fuelCoef==null) c.fuelCoef=d.fuelCoef;
     if(c.tyreTarget==null) c.tyreTarget=d.tyreTarget;
     if(!c.fuel) c.fuel={};
+    // Config creee avant l'ajout des references : on la complete sans ecraser
+    if(!c.kpiRef) c.kpiRef=deepClone(KPI_REF_DEFAULTS);
     return c;
   }
 
@@ -4719,7 +4743,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       h+=kpiTopSpeedByDriver(a);
       h+=kpiGearsCard(a);
     } else if(activeKpiFamily==='drive'){
-      h+=kpiDrivingSummary(a);
+      h+=kpiDrivingSummary(a, cfg);
       KPI_DRIVING.forEach(spec=>{
         h+=kpiChartCard({title:spec.title, dec:spec.dec, series:[[spec.key,spec.title]]}, a.rep.length?a.rep:a.laps, cfg);
       });
@@ -4795,26 +4819,42 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       });
       h+='</tbody></table>';
     }
-    h+='</div></div>';
+    h+='</div>';
+    h+='<div class="kpi-card kpi-card-wide"><h4>KPI DATA — références</h4>'+
+       '<div class="small" style="margin-bottom:8px;">Ces valeurs ne sont pas calculées : elles sont saisies, comme dans le classeur. Elles apparaissent en regard des valeurs mesurées dans la synthèse de l\'onglet Pilotage. Un champ vide masque la référence.</div>'+
+       '<table class="kpi-cfg-table"><colgroup><col style="width:34%"><col style="width:22%"><col style="width:22%"><col style="width:22%"></colgroup>'+
+       '<thead><tr><th>Métrique</th><th>Min</th><th>AVG</th><th>Max</th></tr></thead><tbody>';
+    KPI_SUMMARY_ROWS.forEach(r=>{
+      const R=(cfg.kpiRef||{})[r[0]]||{};
+      h+='<tr><td>'+esc(r[1])+'</td>'+
+         ['min','avg','max'].map(b=>'<td><input type="number" step="any" class="kpi-cfg" data-kind="ref" data-key="'+esc(r[0])+'" data-bound="'+b+'" value="'+val(R[b])+'"></td>').join('')+
+         '</tr>';
+    });
+    h+='</tbody></table>'+
+       '<button class="small" id="kpiRefReset" style="margin-top:8px;">Revenir aux références du classeur</button></div>';
+    h+='</div>';
     return h;
   }
   function kpiFuelCards(a, cfg){
     const fc=(cfg&&cfg.fuelCoef!=null)?cfg.fuelCoef:KPI_FUEL_COEF;
     let h='';
-    // Conso moyenne par pilote sur les tours retenus
-    const groups=[{label:'Conso / tour [L]', bars:[]},{label:'Conso chevauchement [L]', bars:[]}];
+    const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    // Conso au tour et conso due au chevauchement different d'un facteur mille :
+    // sur un axe commun la seconde serait ecrasee contre zero, d'ou deux cartes.
+    const barsConso=[], barsCross=[], repres=[];
     a.drivers.forEach((d,i)=>{
       const col=driverColor(d)||KPI_PALETTE[i%KPI_PALETTE.length];
       const own=a.fuelLaps.filter(l=>(l.driver||'(?)')===d);
       const ownRep=a.rep.filter(l=>(l.driver||'(?)')===d);
-      groups[0].bars.push({label:d, color:col, value:kpiAvg(own,'fuelLap')});
-      groups[1].bars.push({label:d, color:col, value:kpiAvg(ownRep,'fuelCross')});
+      barsConso.push({label:d, color:col, value:kpiAvg(own,'fuelLap')});
+      barsCross.push({label:d, color:col, value:kpiAvg(ownRep,'fuelCross')});
+      repres.push(esc(d)+' : '+own.length+' tour'+(own.length>1?'s':'')+' retenu'+(own.length>1?'s':'')+' sur '+ownRep.length+' représentatif'+(ownRep.length>1?'s':''));
     });
-    h+='<div class="kpi-card"><h4>Consommation moyenne par pilote</h4>'+svgBarChart(groups,{yFmt:v=>v.toFixed(3)})+'</div>';
-    // Nombre de tours retenus par pilote, pour lire la representativite
-    const cnt=[{label:'Tours retenus (conso)', bars:a.drivers.map((d,i)=>({label:d, color:driverColor(d)||KPI_PALETTE[i%KPI_PALETTE.length], value:a.fuelLaps.filter(l=>(l.driver||'(?)')===d).length}))},
-               {label:'Tours représentatifs', bars:a.drivers.map((d,i)=>({label:d, color:driverColor(d)||KPI_PALETTE[i%KPI_PALETTE.length], value:a.rep.filter(l=>(l.driver||'(?)')===d).length}))}];
-    h+='<div class="kpi-card"><h4>Tours pris en compte</h4>'+svgBarChart(cnt,{yFmt:v=>v.toFixed(0)})+'</div>';
+    h+='<div class="kpi-card"><h4>Consommation moyenne par pilote [L/tour]</h4>'+
+       svgBarChart([{label:'Conso / tour', bars:barsConso}],{yFmt:v=>v.toFixed(3), height:280})+
+       '<div class="small" style="margin-top:6px;">'+repres.join(' — ')+'</div></div>';
+    h+='<div class="kpi-card"><h4>Chevauchement de pédales par pilote [L/tour]</h4>'+
+       svgBarChart([{label:'Conso due au chevauchement', bars:barsCross}],{yFmt:v=>v.toFixed(3), height:280})+'</div>';
     // Evolution tour par tour
     const s1=[{label:'Conso / tour [L]', color:KPI_PALETTE[0], points:a.rep.map(l=>({x:l.idx, y:(l.ch.fuelLap!=null?l.ch.fuelLap:null)}))}];
     const hl=(a.fuelMax!=null)?[{y:a.fuelMax, label:'max '+a.fuelMax.toFixed(2), color:'#e05555'},{y:a.fuelMax*fc, label:'seuil '+(a.fuelMax*fc).toFixed(2), color:'#f2d24b'}]:[];
@@ -4859,21 +4899,29 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     ['accYmax','AccY - Left Turn',2],['accYmin','AccY - Right Turn',2],['pBrakeTotal','pBrake Total',1]
   ];
   // Equivalent du bloc "KPI DATA" du classeur, enrichi d'une moyenne par pilote
-  function kpiDrivingSummary(a){
+  function kpiDrivingSummary(a, cfg){
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
     const laps=a.rep.length?a.rep:a.laps;
     const f=(v,d)=>v==null?'—':v.toFixed(d);
+    const ref=(cfg&&cfg.kpiRef)?cfg.kpiRef:{};
+    const avecRef=KPI_SUMMARY_ROWS.some(r=>{ const R=ref[r[0]]; return R && (R.min!=null||R.avg!=null||R.max!=null); });
     let h='<div class="kpi-card kpi-card-wide"><h4>Synthèse pilotage (tours représentatifs)</h4>'+
-      '<table class="kpi-cfg-table" style="min-width:'+(360+a.drivers.length*80)+'px;"><thead><tr>'+
+      '<table class="kpi-cfg-table" style="min-width:'+(360+a.drivers.length*80+(avecRef?240:0))+'px;"><thead><tr>'+
       '<th style="width:180px;">Métrique</th><th>Min</th><th>AVG</th><th>Max</th>'+
-      a.drivers.map(d=>'<th>'+esc(d)+'</th>').join('')+'</tr></thead><tbody>';
+      a.drivers.map(d=>'<th>'+esc(d)+'</th>').join('')+
+      (avecRef?'<th class="kpi-ref-col">Réf Min</th><th class="kpi-ref-col">Réf AVG</th><th class="kpi-ref-col">Réf Max</th>':'')+
+      '</tr></thead><tbody>';
     KPI_SUMMARY_ROWS.forEach(r=>{
       const mm=kpiMinMax(laps, r[0]), av=kpiAvg(laps, r[0]);
+      const R=ref[r[0]]||{};
       if(mm.min==null && av==null) return;
       h+='<tr><td>'+esc(r[1])+'</td><td>'+f(mm.min,r[2])+'</td><td>'+f(av,r[2])+'</td><td>'+f(mm.max,r[2])+'</td>'+
-         a.drivers.map(d=>'<td>'+f(kpiAvg(laps.filter(l=>(l.driver||'(?)')===d), r[0]), r[2])+'</td>').join('')+'</tr>';
+         a.drivers.map(d=>'<td>'+f(kpiAvg(laps.filter(l=>(l.driver||'(?)')===d), r[0]), r[2])+'</td>').join('')+
+         (avecRef?['min','avg','max'].map(b=>'<td class="kpi-ref-col">'+f(R[b]==null?null:Number(R[b]), r[2])+'</td>').join(''):'')+
+         '</tr>';
     });
-    h+='</tbody></table><div class="small" style="margin-top:6px;">Colonnes pilote : moyenne sur leurs tours représentatifs.</div></div>';
+    h+='</tbody></table><div class="small" style="margin-top:6px;">Colonnes pilote : moyenne sur leurs tours représentatifs.'+
+       (avecRef?' Colonnes « Réf » : valeurs saisies dans Réglages, non calculées.':'')+'</div></div>';
     return h;
   }
   function kpiBalanceSummary(a){
@@ -4906,6 +4954,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       } else if(kind==='fuel'){
         if(!c.fuel[key]) c.fuel[key]={};
         if(v==null) delete c.fuel[key][bound]; else c.fuel[key][bound]=v;
+      } else if(kind==='ref'){
+        if(!c.kpiRef) c.kpiRef={};
+        if(!c.kpiRef[key]) c.kpiRef[key]={};
+        if(v==null) delete c.kpiRef[key][bound]; else c.kpiRef[key][bound]=v;
       }
       saveState(); renderResumeTab();
     }));
@@ -4918,6 +4970,12 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const c=kpiConfig(ev, true), s=from.config;
       c.limits=deepClone(s.limits||{});
       c.laptimeCoef=s.laptimeCoef; c.fuelCoef=s.fuelCoef; c.tyreTarget=s.tyreTarget;
+      saveState(); renderResumeTab();
+    });
+    const refReset=document.getElementById('kpiRefReset');
+    if(refReset) refReset.addEventListener('click', ()=>{
+      if(!confirm('Remettre les références KPI DATA aux valeurs du classeur ?')) return;
+      kpiConfig(ev, true).kpiRef=deepClone(KPI_REF_DEFAULTS);
       saveState(); renderResumeTab();
     });
     const reset=document.getElementById('kpiCfgReset');
