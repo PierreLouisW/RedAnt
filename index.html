@@ -4396,7 +4396,25 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     ['fuelLap','Fuel_Cons_Lap','max'],['fuelCross','Fuel_Cons_CrossPedals_Lap','avg'],
     ['balCorner','Balance_Corner','avg'],['balHS','Balance_HS','avg'],['balMS','Balance_MS','avg'],
     ['balLS','Balance_LS','avg'],['balExit','Balance_CornerExit','avg'],
-    ['balMid','Balance_MidCorner','avg'],['balTrail','Balance_TrailBraking','avg']
+    ['balMid','Balance_MidCorner','avg'],['balTrail','Balance_TrailBraking','avg'],
+    // Performance
+    ['brakeBias','Brake_Bias','avg'],['brakeEff','Brake_Eff','avg'],
+    ['lockFL','Lock_FL','max'],['lockFR','Lock_FR','max'],['lockRL','Lock_RL','max'],['lockRR','Lock_RR','max'],
+    ['rhF','k_RH_F_EOS','avg'],['rhR','k_RH_R_EOS','avg'],
+    ['misUp','MisUpshifts','end'],['misDown','MisDownshifts','end'],
+    ['tpFL','Tyre_Press_FL','avg'],['tpFR','Tyre_Press_FR','avg'],['tpRL','Tyre_Press_RL','avg'],['tpRR','Tyre_Press_RR','avg'],
+    ['ttFL','TPMS_FL_Temp','avg'],['ttFR','TPMS_FR_Temp','avg'],['ttRL','TPMS_RL_Temp','avg'],['ttRR','TPMS_RR_Temp','avg'],
+    ['km1','Km_1st','max'],['km2','Km_2nd','max'],['km3','Km_3rd','max'],
+    ['km4','Km_4th','max'],['km5','Km_5th','max'],['km6','Km_6th','max'],
+    // Pilotage
+    ['kerbUse','Kerb_Use','avg'],['steerAttack','Steer_Attack','avg'],['brakeLocking','Brake_Locking','avg'],
+    ['crossPedals','Cross_Pedals_Lap','avg'],['wheelSpin','Wheel_Spin','avg'],['clutchSlip','Clutch_Slip','avg'],
+    ['accCombined','Acc_Combined_Lap','avg'],['pedalAttack','Pedal_Attack_Lap','avg'],
+    ['brakeAttack','Brake_Attack_Lap','avg'],['brakeRelease','Brake_Release_Lap','avg'],
+    ['limiterHit','LimiterHit_Lap','avg'],['coasting','Coasting_Lap','avg'],['fullThrottle','Full_Throttle_Lap','avg'],
+    ['accXmin','ECU_AccX','min'],['accXmax','ECU_AccX','max'],
+    ['accYmin','ECU_AccY','min'],['accYmax','ECU_AccY','max'],
+    ['pBrakeTotal','pBrake_Total','max'],['mapPos','Rot_MapPos','start'],['tcPos','Rot_TC_Pos','start']
   ];
 
   const KPI_PALETTE = ['#4fa3ff','#ff9f43','#54d17a','#e05555','#b58cff','#f2d24b','#5fd0d8','#ff7ab0'];
@@ -4449,6 +4467,18 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const cand=kpiSplitLine(lines[hi+1],delim), filled=cand.filter(c=>c!=='');
       if(filled.length && filled.every(c=>AGG.indexOf(c.toLowerCase())>=0)){ aggs=cand; di=hi+2; }
     }
+    // Un canal exporte sous plusieurs agregations n'a parfois son nom que sur sa
+    // premiere colonne (entete fusionnee) : les suivantes en heritent. On
+    // n'herite que si la colonne porte une agregation, sinon les colonnes vides
+    // de fin de fichier prendraient le nom du dernier canal.
+    if(aggs){
+      let dernier='';
+      for(let i=0;i<names.length;i++){
+        const v=String(names[i]||'').trim();
+        if(v){ dernier=v; names[i]=v; }
+        else if(String(aggs[i]||'').trim()!=='') names[i]=dernier;
+      }
+    }
     const rows=[];
     for(let i=di;i<lines.length;i++){
       const c=kpiSplitLine(lines[i],delim);
@@ -4459,18 +4489,23 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     return {names:names, aggs:aggs, rows:rows};
   }
   function kpiIndexer(p){
-    const map={};
+    const map={}, compte={};
     p.names.forEach((n,i)=>{
       const key=String(n||'').trim().toLowerCase(); if(!key) return;
       const agg=p.aggs?String(p.aggs[i]||'').trim().toLowerCase():'';
       if(map[key+'|'+agg]==null) map[key+'|'+agg]=i;
       if(map[key]==null) map[key]=i;
+      compte[key]=(compte[key]||0)+1;
     });
     return function(name, agg){
       const k=String(name).toLowerCase();
-      let i=map[k+'|'+String(agg||'').toLowerCase()];
-      if(i==null) i=map[k];
-      return (i==null)?-1:i;
+      const i=map[k+'|'+String(agg||'').toLowerCase()];
+      if(i!=null) return i;
+      // Sans correspondance exacte, se rabattre sur le nom seul n'est sûr que si
+      // le canal n'a qu'une colonne : sinon on renverrait le Min pour le Max, et
+      // deux graphiques distincts afficheraient la meme courbe.
+      if(compte[k]===1 && map[k]!=null) return map[k];
+      return -1;
     };
   }
   // Un CSV peut contenir plusieurs sessions : on les separe sur SessionName.
@@ -4550,6 +4585,40 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     {title:'Air Comp Lap [bar]', dec:2, series:[['airCompLap','Avg']]},
     {title:'Car Top Speed [km/h]', dec:0, series:[['carSpeed','Max']]}
   ];
+  const KPI_PERFORMANCE=[
+    {title:'Brake Bias [%]', dec:1, series:[['brakeBias','Avg']]},
+    {title:'Brake Efficiency', dec:1, series:[['brakeEff','Avg']]},
+    {title:'Locks', dec:1, series:[['lockFL','FL'],['lockFR','FR'],['lockRL','RL'],['lockRR','RR']]},
+    {title:'RH_F_EOS [mm]', dec:2, series:[['rhF','Avant']]},
+    {title:'RH_R_EOS [mm]', dec:2, series:[['rhR','Arrière']]},
+    {title:'MisUpshifts & MisDownshifts', dec:0, series:[['misUp','MisUpshifts'],['misDown','MisDownshifts']]},
+    {title:'TPMS Pressures [bar]', dec:2, lim:'tyre', series:[['tpFL','FL'],['tpFR','FR'],['tpRL','RL'],['tpRR','RR']]},
+    {title:'TPMS Temperatures [°C]', dec:0, series:[['ttFL','FL'],['ttFR','FR'],['ttRL','RL'],['ttRR','RR']]}
+  ];
+  // Titres du classeur ; le sens de AccY (gauche/droite) suit la convention
+  // "max = virage a gauche" - a inverser ici si la voiture dit le contraire.
+  const KPI_DRIVING=[
+    {title:'Full Throttle', key:'fullThrottle', dec:1},
+    {title:'Pedal Attack', key:'pedalAttack', dec:1},
+    {title:'Brake Attack', key:'brakeAttack', dec:1},
+    {title:'Brake Release', key:'brakeRelease', dec:1},
+    {title:'Brake Locking', key:'brakeLocking', dec:1},
+    {title:'AccX - Braking (max)', key:'accXmin', dec:2},
+    {title:'AccX - Acceleration (max)', key:'accXmax', dec:2},
+    {title:'AccY - Left turns (max)', key:'accYmax', dec:2},
+    {title:'AccY - Right turns (max)', key:'accYmin', dec:2},
+    {title:'Acc Combined', key:'accCombined', dec:1},
+    {title:'Throttle Position', key:'mapPos', dec:0},
+    {title:'TC Position', key:'tcPos', dec:0},
+    {title:'Cross pedals', key:'crossPedals', dec:2},
+    {title:'Coasting', key:'coasting', dec:1},
+    {title:'Clutch Slip', key:'clutchSlip', dec:1},
+    {title:'Kerb Use', key:'kerbUse', dec:1},
+    {title:'Wheel Spin', key:'wheelSpin', dec:1},
+    {title:'pBrake Total', key:'pBrakeTotal', dec:1},
+    {title:'Limiter Hit', key:'limiterHit', dec:3},
+    {title:'Steer Attack', key:'steerAttack', dec:1}
+  ];
   const KPI_BALANCE=[
     {title:'Corner Balance', key:'balCorner'}, {title:'High Speed', key:'balHS'},
     {title:'Mid Speed', key:'balMS'}, {title:'Low Speed', key:'balLS'},
@@ -4560,6 +4629,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   let activeKpiFamily='fiab', activeKpiSession='';
 
   function kpiLimitLines(cfg, limKey){
+    // La cible de pression pneu vit avec les coefficients, pas avec les limites moteur
+    if(limKey==='tyre'){
+      const t=cfg?cfg.tyreTarget:null;
+      return (t==null)?[]:[{y:t, label:'cible '+t, color:'#f2d24b'}];
+    }
     const L=(cfg&&cfg.limits)?cfg.limits[limKey]:null; if(!L) return [];
     const out=[];
     if(L.max!=null) out.push({y:L.max, label:'max '+L.max, color:'#e05555'});
@@ -4574,7 +4648,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     })).filter(s=>s.points.some(p=>p.y!=null));
     const body=series.length
       ? svgLineChart(series, {yFmt:v=>v.toFixed(spec.dec==null?1:spec.dec), xLabel:'Tour', hlines:kpiLimitLines(cfg, spec.lim)})
-      : '<div class="small">Canal absent de l\'export.</div>';
+      // On ne sait pas ici distinguer une colonne absente d'une colonne remplie
+      // de tirets : le bilan des canaux manquants est donne a l'import.
+      : '<div class="small">Aucune valeur pour ce canal dans cette session.</div>';
     return '<div class="kpi-card"><h4>'+spec.title+'</h4>'+body+'</div>';
   }
   function renderResumeKpi(box, ev){
@@ -4595,7 +4671,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const famTabs=(withData)=>'<div class="subtabs" id="kpiFamilyTabs" style="margin-top:10px;">'+
        (withData?('<button data-fam="fiab"'+(activeKpiFamily==='fiab'?' class="active"':'')+'>Fiabilité</button>'+
        '<button data-fam="fuel"'+(activeKpiFamily==='fuel'?' class="active"':'')+'>Carburant</button>'+
-       '<button data-fam="bal"'+(activeKpiFamily==='bal'?' class="active"':'')+'>Balance</button>'):'')+
+       '<button data-fam="perf"'+(activeKpiFamily==='perf'?' class="active"':'')+'>Performance</button>'+
+       '<button data-fam="bal"'+(activeKpiFamily==='bal'?' class="active"':'')+'>Balance</button>'+
+       '<button data-fam="drive"'+(activeKpiFamily==='drive'?' class="active"':'')+'>Pilotage</button>'):'')+
        '<button data-fam="cfg"'+(activeKpiFamily==='cfg'?' class="active"':'')+'>Réglages</button>'+
        '</div>';
     if(!names.length){
@@ -4630,6 +4708,15 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     h+='<div class="kpi-grid">';
     if(activeKpiFamily==='fuel'){
       h+=kpiFuelCards(a, cfg);
+    } else if(activeKpiFamily==='perf'){
+      KPI_PERFORMANCE.forEach(spec=>{ h+=kpiChartCard(spec, a.rep.length?a.rep:a.laps, cfg); });
+      h+=kpiTopSpeedByDriver(a);
+      h+=kpiGearsCard(a);
+    } else if(activeKpiFamily==='drive'){
+      h+=kpiDrivingSummary(a);
+      KPI_DRIVING.forEach(spec=>{
+        h+=kpiChartCard({title:spec.title, dec:spec.dec, series:[[spec.key,spec.title]]}, a.rep.length?a.rep:a.laps, cfg);
+      });
     } else if(activeKpiFamily==='bal'){
       KPI_BALANCE.forEach(spec=>{
         h+=kpiChartCard({title:spec.title, dec:2, series:[[spec.key,spec.title]]}, a.rep.length?a.rep:a.laps, cfg);
@@ -4728,6 +4815,59 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     h+='<div class="kpi-card kpi-card-wide"><h4>Consommation tour par tour</h4>'+svgLineChart(s1,{yFmt:v=>v.toFixed(2), hlines:hl})+'</div>';
     const s2=[{label:'Conso due au chevauchement [L]', color:KPI_PALETTE[1], points:a.rep.map(l=>({x:l.idx, y:(l.ch.fuelCross!=null?l.ch.fuelCross:null)}))}];
     h+='<div class="kpi-card kpi-card-wide"><h4>Consommation due au chevauchement de pédales</h4>'+svgLineChart(s2,{yFmt:v=>v.toFixed(3)})+'</div>';
+    return h;
+  }
+  function kpiMinMax(laps, key){
+    let mn=null, mx=null;
+    laps.forEach(l=>{ const v=l.ch[key]; if(v==null) return;
+      if(mn==null||v<mn) mn=v; if(mx==null||v>mx) mx=v; });
+    return {min:mn, max:mx};
+  }
+  // Vitesse de pointe : un maximum, donc pris sur tous les tours valides et pas
+  // seulement sur les tours representatifs.
+  function kpiTopSpeedByDriver(a){
+    const bars=a.drivers.map((d,i)=>({label:d, color:driverColor(d)||KPI_PALETTE[i%KPI_PALETTE.length],
+      value:kpiMinMax(a.laps.filter(l=>(l.driver||'(?)')===d),'carSpeed').max}));
+    if(!bars.some(b=>b.value!=null)) return '';
+    return '<div class="kpi-card kpi-card-wide"><h4>Vitesse de pointe par pilote [km/h]</h4>'+
+      svgBarChart([{label:'Top speed', bars:bars}], {yFmt:v=>v.toFixed(0), height:280})+'</div>';
+  }
+  // Km par rapport : le classeur cumule la colonne de chaque rapport sur la session
+  function kpiGearsCard(a){
+    const keys=[['km1','1re'],['km2','2e'],['km3','3e'],['km4','4e'],['km5','5e'],['km6','6e']];
+    const bars=keys.map((k,i)=>{
+      let s=null;
+      a.laps.forEach(l=>{ const v=l.ch[k[0]]; if(v!=null) s=(s||0)+v; });
+      return {label:k[1], color:KPI_PALETTE[i%KPI_PALETTE.length], value:s};
+    });
+    if(!bars.some(b=>b.value!=null)) return '';
+    return '<div class="kpi-card kpi-card-wide"><h4>Kilométrage par rapport [km]</h4>'+
+      svgBarChart(bars.map(b=>({label:b.label, bars:[b]})), {yFmt:v=>v.toFixed(1), height:280})+'</div>';
+  }
+  const KPI_SUMMARY_ROWS=[
+    ['kerbUse','Kerb Use',1],['steerAttack','Steer Attack',1],['brakeLocking','Brake Locking',1],
+    ['crossPedals','Cross Pedals',1],['wheelSpin','Wheel Spin',1],['clutchSlip','Clutch Slip',1],
+    ['pedalAttack','Pedal Attack',1],['brakeAttack','Brake Attack',1],['brakeRelease','Brake Release',1],
+    ['limiterHit','Limiter Hit',3],['coasting','Coasting',1],['fullThrottle','Full Throttle',1],
+    ['accCombined','Acc Combined',1],['accXmin','AccX - Braking',2],['accXmax','AccX - Acceleration',2],
+    ['accYmax','AccY - Left Turn',2],['accYmin','AccY - Right Turn',2],['pBrakeTotal','pBrake Total',1]
+  ];
+  // Equivalent du bloc "KPI DATA" du classeur, enrichi d'une moyenne par pilote
+  function kpiDrivingSummary(a){
+    const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const laps=a.rep.length?a.rep:a.laps;
+    const f=(v,d)=>v==null?'—':v.toFixed(d);
+    let h='<div class="kpi-card kpi-card-wide"><h4>Synthèse pilotage (tours représentatifs)</h4>'+
+      '<table class="kpi-cfg-table" style="min-width:'+(360+a.drivers.length*80)+'px;"><thead><tr>'+
+      '<th style="width:180px;">Métrique</th><th>Min</th><th>AVG</th><th>Max</th>'+
+      a.drivers.map(d=>'<th>'+esc(d)+'</th>').join('')+'</tr></thead><tbody>';
+    KPI_SUMMARY_ROWS.forEach(r=>{
+      const mm=kpiMinMax(laps, r[0]), av=kpiAvg(laps, r[0]);
+      if(mm.min==null && av==null) return;
+      h+='<tr><td>'+esc(r[1])+'</td><td>'+f(mm.min,r[2])+'</td><td>'+f(av,r[2])+'</td><td>'+f(mm.max,r[2])+'</td>'+
+         a.drivers.map(d=>'<td>'+f(kpiAvg(laps.filter(l=>(l.driver||'(?)')===d), r[0]), r[2])+'</td>').join('')+'</tr>';
+    });
+    h+='</tbody></table><div class="small" style="margin-top:6px;">Colonnes pilote : moyenne sur leurs tours représentatifs.</div></div>';
     return h;
   }
   function kpiBalanceSummary(a){
