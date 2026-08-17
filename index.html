@@ -187,10 +187,9 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .hnu-row{display:flex;align-items:baseline;gap:6px;justify-content:center;flex-wrap:wrap;line-height:1.55;}
 .hnu-when{font-variant-numeric:tabular-nums;opacity:.85;}
 .hnu-what{color:var(--text);}
-/* La seance de piste ressort ; les rendez-vous hors piste restent en retrait
-   pour qu'un coup d'oeil suffise a les distinguer. */
+/* Seule marque de distinction : la seance de piste est en gras, le rendez-vous
+   hors piste reste en texte normal. */
 .hnu-what.hnu-official{font-weight:700;}
-.hnu-tag{padding:0 5px;border-radius:8px;border:1px solid var(--border);font-size:9px;text-transform:uppercase;letter-spacing:.4px;opacity:.8;}
 .hnu-ev{opacity:.65;}
 
 /* ---- CALENDRIER MLMC ---- */
@@ -5347,7 +5346,6 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       return '<div class="hnu-row">'+
         '<span class="hnu-when">'+esc(quand)+'</span>'+
         '<span class="hnu-what'+(off?' hnu-official':'')+'">'+esc(e.t.text)+'</span>'+
-        (off?'':'<span class="hnu-tag">hors piste</span>')+
         '<span class="hnu-ev">'+(flagEmoji(e.ev.country)?flagEmoji(e.ev.country)+' ':'')+esc(e.ev.label)+'</span>'+
       '</div>';
     }).join('');
