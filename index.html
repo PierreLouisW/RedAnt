@@ -182,7 +182,16 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .nr-task-row.nr-task-official{background:rgba(240,147,43,0.10);border-left:3px solid var(--accent);padding-left:6px;margin-left:-9px;border-radius:4px;}
 .home-clock-row{display:flex;gap:16px;flex-wrap:wrap;align-items:stretch;}
 .home-clock-row>div{flex:1;min-width:260px;}
-.home-next-upcoming{text-align:center;margin-top:-4px;margin-bottom:10px;color:var(--muted);font-size:11px;}
+.home-next-upcoming{margin-top:-2px;margin-bottom:10px;color:var(--muted);font-size:11px;}
+.hnu-title{text-transform:uppercase;letter-spacing:.6px;font-size:9.5px;opacity:.75;margin-bottom:2px;text-align:center;}
+.hnu-row{display:flex;align-items:baseline;gap:6px;justify-content:center;flex-wrap:wrap;line-height:1.55;}
+.hnu-when{font-variant-numeric:tabular-nums;opacity:.85;}
+.hnu-what{color:var(--text);}
+/* La seance de piste ressort ; les rendez-vous hors piste restent en retrait
+   pour qu'un coup d'oeil suffise a les distinguer. */
+.hnu-what.hnu-official{font-weight:700;}
+.hnu-tag{padding:0 5px;border-radius:8px;border:1px solid var(--border);font-size:9px;text-transform:uppercase;letter-spacing:.4px;opacity:.8;}
+.hnu-ev{opacity:.65;}
 
 /* ---- CALENDRIER MLMC ---- */
 .cal-list{display:flex;flex-direction:column;gap:8px;}
@@ -5277,14 +5286,18 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
   // ---------- HORLOGE PROCHAINE SESSION (affichage TV box) ----------
   // eventId (optionnel) : restreint la recherche a un seul meeting du Calendrier MLMC
-  function findUpcomingOfficialSessions(eventId){
+  // Echeances a venir. officialOnly=true ne garde que les seances de piste
+  // (FP, qualif, course), qui seules pilotent le decompte ; sans ce filtre on
+  // recupere aussi les rendez-vous hors piste - verifications, briefing,
+  // photo - qui servent de rappel sous le decompte.
+  function findUpcomingTasks(eventId, officialOnly){
     if(!STATE) return [];
     const now = new Date();
     const list = [];
     (STATE.mlmcEvents||[]).forEach(ev=>{
       if(eventId && String(ev.id)!==String(eventId)) return;
       (ev.tasks||[]).forEach(t=>{
-        if(!t.isOfficialSession) return;
+        if(officialOnly && !t.isOfficialSession) return;
         const dateStr = t.date || ev.date;
         if(!dateStr) return;
         const start = new Date(dateStr+'T'+(t.startTime||'00:00')+':00');
@@ -5297,6 +5310,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     list.sort((a,b)=>a.start-b.start);
     return list;
   }
+  function findUpcomingOfficialSessions(eventId){ return findUpcomingTasks(eventId, true); }
   function findNextOfficialSessionDT(eventId){
     return findUpcomingOfficialSessions(eventId)[0] || null;
   }
@@ -5318,11 +5332,25 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     return best ? String(best.ev.id) : '';
   }
 
-  function renderHomeNextUpcoming(entry){
+  // Trois prochaines echeances, seances de piste ET rendez-vous hors piste.
+  // Trois suffit : un week-end compte une trentaine de rendez-vous hors piste,
+  // les lister tous noierait l'accueil.
+  function renderHomeNextUpcoming(entries){
     const box = document.getElementById('homeNextUpcoming');
     if(!box) return;
-    if(!entry){ box.innerHTML = ''; return; }
-    box.innerHTML = 'Ensuite : <b>'+entry.t.text+'</b> - '+(flagEmoji(entry.ev.country)?flagEmoji(entry.ev.country)+' ':'')+entry.ev.label+' - '+fmtDate(entry.t.date||entry.ev.date)+(entry.t.startTime?' '+entry.t.startTime:'');
+    const list = (entries||[]).slice(0, 3);
+    if(!list.length){ box.innerHTML = ''; return; }
+    const esc = (x)=>(x==null?'':String(x)).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    box.innerHTML = '<div class="hnu-title">Ensuite</div>' + list.map(e=>{
+      const off = !!e.t.isOfficialSession;
+      const quand = fmtDate(e.t.date||e.ev.date)+(e.t.startTime?' '+e.t.startTime:'');
+      return '<div class="hnu-row">'+
+        '<span class="hnu-when">'+esc(quand)+'</span>'+
+        '<span class="hnu-what'+(off?' hnu-official':'')+'">'+esc(e.t.text)+'</span>'+
+        (off?'':'<span class="hnu-tag">hors piste</span>')+
+        '<span class="hnu-ev">'+(flagEmoji(e.ev.country)?flagEmoji(e.ev.country)+' ':'')+esc(e.ev.label)+'</span>'+
+      '</div>';
+    }).join('');
   }
 
   function renderSessionClock(){
@@ -5332,9 +5360,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // l'authentification et la lecture du state partage : tant qu'on est sur
     // l'ecran de connexion, il n'y a rien a afficher.
     if(!STATE) return;
-    const upcoming = findUpcomingOfficialSessions(effectiveHomeEventId());
+    const evId = effectiveHomeEventId();
+    const upcoming = findUpcomingOfficialSessions(evId);
     const next = upcoming[0] || null;
-    renderHomeNextUpcoming(upcoming[1] || null);
+    // Le rappel liste toutes les echeances SAUF celle deja affichee en grand
+    // juste au-dessus. Un rendez-vous hors piste place avant la prochaine
+    // seance officielle apparait donc bien en tete de liste.
+    renderHomeNextUpcoming(findUpcomingTasks(evId, false).filter(e=>!(next && e.t===next.t && e.ev===next.ev)));
     if(!next){ box.innerHTML = ''; setHeaderClock(null); renderKeyChecks(null); return; }
     const now = new Date();
     const live = now>=next.start && (!next.end || now<=next.end);
