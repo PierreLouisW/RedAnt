@@ -181,6 +181,18 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .tv-checks .key-check-label{font-size:clamp(12px,1.5vw,22px);margin-bottom:8px;}
 .tv-checks .key-check-status{font-size:clamp(22px,3.4vw,48px);}
 .tv-checks-for{text-align:center;font-size:clamp(11px,1.2vw,15px);color:var(--muted);margin-bottom:6px;}
+.tv-screen{position:relative;}
+.tv-full-btn{position:absolute;top:0;right:0;z-index:2;padding:6px 12px;font-size:12px;
+  background:var(--panel);color:var(--muted);border:1px solid var(--border);border-radius:8px;cursor:pointer;opacity:.6;}
+.tv-full-btn:hover{opacity:1;}
+/* Plein ecran : sur un mur, personne ne navigue - le bandeau et les onglets
+   disparaissent, et l'affichage prend toute la hauteur. */
+body.tv-fullscreen header, body.tv-fullscreen nav.tabs{display:none !important;}
+body.tv-fullscreen section.tab{padding:0;}
+body.tv-fullscreen .tv-screen{min-height:100vh;padding:10px 0;}
+body.tv-fullscreen .tv-car{max-height:44vh;}
+body.tv-fullscreen .tv-full-btn{opacity:0;}
+body.tv-fullscreen .tv-full-btn:hover{opacity:.8;}
 .next-race-card .nr-label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:0.5px;}
 .next-race-card .nr-name{font-size:18px;font-weight:700;margin:4px 0;}
 .next-race-card .nr-countdown{font-size:28px;font-weight:800;color:var(--accent);}
@@ -1247,6 +1259,7 @@ body.auth-locked #authGate{ display:flex; }
 <!-- TAB: TELE (affichage mural atelier) -->
 <section class="tab" id="tab-tv">
   <div class="tv-screen">
+    <button class="tv-full-btn" id="tvFullscreenBtn" title="Plein écran (Échap pour sortir)">⛶ Plein écran</button>
     <img class="tv-car" src="voiture.png" alt="Ajith-RedAnt LMP3 #36">
     <div id="tvClock" class="tv-clock"></div>
     <div id="tvKeyChecks" class="tv-checks"></div>
@@ -5522,6 +5535,34 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
                     '<div id="tvKeyChecksGrid"></div>';
     renderKeyChecks(officielle.ev.id+'::'+officielle.t.id, 'tvKeyChecksGrid');
   }
+
+  // Plein ecran de l'onglet Tele. La classe suit l'etat REEL du navigateur
+  // (evenement fullscreenchange) et non le clic : sortir par Echap doit
+  // remettre le bandeau et les onglets, sans quoi l'app resterait amputee.
+  (function(){
+    const btn = document.getElementById('tvFullscreenBtn');
+    if(!btn) return;
+    btn.addEventListener('click', ()=>{
+      if(document.fullscreenElement){
+        if(document.exitFullscreen) document.exitFullscreen();
+      } else if(document.documentElement.requestFullscreen){
+        document.documentElement.requestFullscreen().catch(()=>{
+          // Refus du navigateur : on bascule quand meme l'affichage epure,
+          // qui reste utile sur un ecran dedie.
+          document.body.classList.toggle('tv-fullscreen');
+        });
+      } else {
+        document.body.classList.toggle('tv-fullscreen');
+      }
+    });
+    document.addEventListener('fullscreenchange', ()=>{
+      document.body.classList.toggle('tv-fullscreen', !!document.fullscreenElement);
+      if(document.fullscreenElement){
+        const tv = document.querySelector('nav.tabs button[data-tab="tv"]');
+        if(tv && !tv.classList.contains('active')) tv.click();
+      }
+    });
+  })();
 
   setInterval(renderSessionClock, 1000);
 
