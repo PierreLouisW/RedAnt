@@ -166,8 +166,11 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
    Lu de loin : voiture en haut, decompte au centre, les quatre controles
    alignes en bas. Tout est dimensionne en vh pour remplir l'ecran quel que
    soit le televiseur. */
-.tv-screen{display:flex;flex-direction:column;align-items:center;justify-content:space-between;
-  min-height:calc(100vh - 195px);gap:10px;padding:4px 0;}
+/* Bloc groupe et centre plutot qu'etale aux extremes : sur un televiseur,
+   space-between creusait de grands vides entre la voiture, le chrono et les
+   controles. */
+.tv-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:calc(100vh - 195px);gap:clamp(6px,1.6vh,20px);padding:4px 0;}
 .tv-car{max-width:min(1100px,92vw);max-height:38vh;width:auto;height:auto;object-fit:contain;}
 .tv-clock{text-align:center;}
 .tv-clock-name{font-size:clamp(18px,2.6vw,34px);font-weight:700;letter-spacing:.5px;}
@@ -182,6 +185,8 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .tv-checks .key-check-status{font-size:clamp(22px,3.4vw,48px);}
 .tv-checks-for{text-align:center;font-size:clamp(11px,1.2vw,15px);color:var(--muted);margin-bottom:6px;}
 .tv-screen{position:relative;}
+/* Logo pose dans le coin, sans pousser le contenu vers le bas */
+.tv-logo{position:absolute;top:0;left:0;height:clamp(38px,7vh,84px);width:auto;}
 .tv-full-btn{position:absolute;top:0;right:0;z-index:2;padding:6px 12px;font-size:12px;
   background:var(--panel);color:var(--muted);border:1px solid var(--border);border-radius:8px;cursor:pointer;opacity:.6;}
 .tv-full-btn:hover{opacity:1;}
@@ -1260,6 +1265,7 @@ body.auth-locked #authGate{ display:flex; }
 <section class="tab" id="tab-tv">
   <div class="tv-screen">
     <button class="tv-full-btn" id="tvFullscreenBtn" title="Plein écran (Échap pour sortir)">⛶ Plein écran</button>
+    <img class="tv-logo" src="logo.png" alt="Ajith-RedAnt Racing">
     <img class="tv-car" src="voiture.png" alt="Ajith-RedAnt LMP3 #36">
     <div id="tvClock" class="tv-clock"></div>
     <div id="tvKeyChecks" class="tv-checks"></div>
