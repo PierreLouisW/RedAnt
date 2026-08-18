@@ -162,6 +162,25 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .key-check-box.check-ok .key-check-status{color:#1f7a4d;}
 .key-check-box.check-nok .key-check-status{color:#e0433b;}
 .key-check-box.check-na .key-check-status{color:var(--muted);}
+/* ---- ONGLET TELE (affichage mural atelier) ----
+   Lu de loin : voiture en haut, decompte au centre, les quatre controles
+   alignes en bas. Tout est dimensionne en vh pour remplir l'ecran quel que
+   soit le televiseur. */
+.tv-screen{display:flex;flex-direction:column;align-items:center;justify-content:space-between;
+  min-height:calc(100vh - 195px);gap:10px;padding:4px 0;}
+.tv-car{max-width:min(1100px,92vw);max-height:38vh;width:auto;height:auto;object-fit:contain;}
+.tv-clock{text-align:center;}
+.tv-clock-name{font-size:clamp(18px,2.6vw,34px);font-weight:700;letter-spacing:.5px;}
+.tv-clock-time{font-size:clamp(48px,11vw,150px);font-weight:800;font-variant-numeric:tabular-nums;line-height:1;letter-spacing:2px;}
+.tv-clock-time.clock-soon{color:#e0433b;}
+.tv-clock-time.clock-live{color:#1f7a4d;}
+.tv-clock-sub{font-size:clamp(13px,1.5vw,20px);color:var(--muted);margin-top:8px;}
+.tv-checks{width:100%;}
+.tv-checks .key-checks-grid{gap:clamp(8px,1.5vw,20px);margin-bottom:0;}
+.tv-checks .key-check-box{padding:clamp(10px,2vh,26px) 8px;cursor:default;}
+.tv-checks .key-check-label{font-size:clamp(12px,1.5vw,22px);margin-bottom:8px;}
+.tv-checks .key-check-status{font-size:clamp(22px,3.4vw,48px);}
+.tv-checks-for{text-align:center;font-size:clamp(11px,1.2vw,15px);color:var(--muted);margin-bottom:6px;}
 .next-race-card .nr-label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:0.5px;}
 .next-race-card .nr-name{font-size:18px;font-weight:700;margin:4px 0;}
 .next-race-card .nr-countdown{font-size:28px;font-weight:800;color:var(--accent);}
@@ -642,6 +661,7 @@ body.auth-locked #authGate{ display:flex; }
   <button data-tab="calendar">Calendrier</button>
   <button data-tab="docs">Documents</button>
   <button data-tab="io">Import / Export</button>
+  <button data-tab="tv">Télé</button>
 </nav>
 
 <!-- TAB: ACCUEIL -->
@@ -1221,6 +1241,15 @@ body.auth-locked #authGate{ display:flex; }
     </div>
     <input type="file" id="docsFileInput" accept="application/pdf,.pdf" style="display:none;">
     <div id="docsContent"></div>
+  </div>
+</section>
+
+<!-- TAB: TELE (affichage mural atelier) -->
+<section class="tab" id="tab-tv">
+  <div class="tv-screen">
+    <img class="tv-car" src="voiture.png" alt="Ajith-RedAnt LMP3 #36">
+    <div id="tvClock" class="tv-clock"></div>
+    <div id="tvKeyChecks" class="tv-checks"></div>
   </div>
 </section>
 
@@ -5365,6 +5394,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // juste au-dessus. Un rendez-vous hors piste place avant la prochaine
     // seance officielle apparait donc bien en tete de liste.
     renderHomeNextUpcoming(findUpcomingTasks(evId, false).filter(e=>!(next && e.t===next.t && e.ev===next.ev)));
+    // L'onglet Tele vit sur le meme tick : il doit s'actualiser meme quand plus
+    // aucune seance officielle n'est a venir (sortie anticipee juste dessous).
+    renderTvTab();
     if(!next){ box.innerHTML = ''; setHeaderClock(null); renderKeyChecks(null); return; }
     const now = new Date();
     const live = now>=next.start && (!next.end || now<=next.end);
@@ -5426,8 +5458,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     saveState();
   }
 
-  function renderKeyChecks(taskKey){
-    const box = document.getElementById('homeKeyChecks');
+  // boxId permet de rendre les memes controles ailleurs que sur l'accueil
+  // (onglet Tele), sans dupliquer la logique de statut.
+  function renderKeyChecks(taskKey, boxId){
+    const box = document.getElementById(boxId || 'homeKeyChecks');
     if(!box) return;
     if(!taskKey || !STATE){ box.innerHTML = ''; return; }
     const mecanoTasks = STATE.todoTasks.filter(x=>x.taskKey===taskKey && x.role==='mecano');
@@ -5447,6 +5481,46 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     box.querySelectorAll('.key-check-box').forEach(el=>{
       el.addEventListener('click', ()=> toggleHomeKeyCheckOverride(taskKey, el.dataset.key));
     });
+  }
+
+  // ---------- ONGLET TELE ----------
+  // Affichage mural d'atelier. Le decompte vise la prochaine echeance QUELLE
+  // QU'ELLE SOIT - verifications techniques, briefing, seance de piste - alors
+  // que les quatre controles portent sur la prochaine seance de piste : c'est
+  // elle qu'on prepare, un passage aux vérifs n'a ni warm-up ni pneus.
+  function renderTvTab(){
+    const clockBox = document.getElementById('tvClock');
+    if(!clockBox || !STATE) return;
+    const esc = (x)=>(x==null?'':String(x)).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const evId = effectiveHomeEventId();
+    const suivant = findUpcomingTasks(evId, false)[0] || null;
+    if(!suivant){
+      clockBox.innerHTML = '<div class="tv-clock-name">Aucune échéance à venir</div>';
+    } else {
+      const now = new Date();
+      const live = now>=suivant.start && (!suivant.end || now<=suivant.end);
+      let cls='clock-ok', diffMs=suivant.start-now;
+      if(live){ cls='clock-live'; diffMs = suivant.end ? (suivant.end-now) : 0; }
+      else if(diffMs < 30*60000){ cls='clock-soon'; }
+      if(diffMs<0) diffMs=0;
+      const total=Math.floor(diffMs/1000), pad=n=>String(n).padStart(2,'0');
+      const j=Math.floor(total/86400), h=Math.floor((total%86400)/3600),
+            m=Math.floor((total%3600)/60), s=total%60;
+      const chrono=(j>0?j+'j ':'')+pad(h)+':'+pad(m)+':'+pad(s);
+      const quand=fmtDate(suivant.t.date||suivant.ev.date)+(suivant.t.startTime?' '+suivant.t.startTime:'');
+      clockBox.innerHTML =
+        '<div class="tv-clock-name">'+esc(suivant.t.text)+(live?' — EN COURS':'')+'</div>'+
+        '<div class="tv-clock-time '+cls+'">'+(live&&suivant.end?'fin dans '+chrono:chrono)+'</div>'+
+        '<div class="tv-clock-sub">'+(flagEmoji(suivant.ev.country)?flagEmoji(suivant.ev.country)+' ':'')+
+          esc(suivant.ev.label)+' — '+esc(quand)+'</div>';
+    }
+    const box = document.getElementById('tvKeyChecks');
+    if(!box) return;
+    const officielle = findUpcomingOfficialSessions(evId)[0] || null;
+    if(!officielle){ box.innerHTML=''; return; }
+    box.innerHTML = '<div class="tv-checks-for">Préparation — '+esc(officielle.t.text)+'</div>'+
+                    '<div id="tvKeyChecksGrid"></div>';
+    renderKeyChecks(officielle.ev.id+'::'+officielle.t.id, 'tvKeyChecksGrid');
   }
 
   setInterval(renderSessionClock, 1000);
