@@ -304,7 +304,8 @@ body.tv-fullscreen .tv-full-btn:hover{opacity:.8;}
 .rs-laps input.rs-narrow{width:44px;}
 .rs-laps input.rs-notes{min-width:240px;width:240px;text-align:left;}
 .rs-oi-sel{width:46px;font-size:11px;padding:2px;text-align:center;}
-.rs-tl-chk{width:auto;}
+.rs-tl-sel{width:auto;min-width:54px;font-size:11px;padding:2px 3px;text-align:center;}
+.rs-laps td.rs-void, .rs-laps td.rs-void input, .rs-laps td.rs-void .rs-auto{text-decoration:line-through;color:var(--muted);}
 .rs-pos-inp{width:32px;text-align:center;}
 .rs-laps td.rs-pos.rs-pos-up{background:rgba(31,157,85,0.38);font-weight:700;}
 .rs-laps td.rs-pos.rs-pos-down{background:rgba(192,57,43,0.42);font-weight:700;}
@@ -678,7 +679,7 @@ body.auth-locked #authGate{ display:flex; }
   <button data-tab="calendar">Calendrier</button>
   <button data-tab="docs">Documents</button>
   <button data-tab="io">Import / Export</button>
-  <button data-tab="tv">Télé</button>
+  <button data-tab="tv">TV</button>
 </nav>
 
 <!-- TAB: ACCUEIL -->
@@ -3495,8 +3496,22 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function getStint(taskKey){ const r=getRunsheet(taskKey); return r ? r.stints[r.activeStint] : null; }
   // Temps effectif d'un tour (somme secteurs sinon laptime saisi)
   function lapEffSec(lp){ const a=lapAutoSec(lp); return a!=null?a:parseLapTime(lp.laptime); }
-  // Tour "propre" : statut Green + ni Out ni In ni Out/In (exclu du calcul de l'Avg)
-  function isCleanLap(lp){ if((lp.status||'green')!=='green') return false; const m=(lp.mark||''); return !(m==='O'||m==='I'||m==='O/I'); }
+  // Track limits : le secteur fautif (S1/S2/S3) est annule, et avec lui le temps
+  // au tour. Ancienne saisie (simple case a cocher) : tour annule, secteur inconnu.
+  function lapTl(lp){
+    const v=lp&&lp.tl;
+    if(v===true||v==='lap') return 'lap';
+    return (v==='S1'||v==='S2'||v==='S3') ? v : '';
+  }
+  function lapVoided(lp){ return lapTl(lp)!==''; }
+  function sectorVoided(lp, f){ return lapTl(lp)===String(f).toUpperCase(); }
+  // Temps retenus pour les best / moyennes : null si annules par track limits
+  function lapTimedSec(lp){ return lapVoided(lp) ? null : lapEffSec(lp); }
+  function lapSectorSec(lp, f){ return sectorVoided(lp,f) ? null : parseLapTime(lp[f]); }
+  // Secteur saisi en secondes : affiche en m:ss,mmm des qu'il depasse la minute
+  function rsSectorText(v){ const sec=parseLapTime(v); return (sec!=null && sec>=60) ? fmtLapTime(sec) : (v==null?'':String(v)); }
+  // Tour "propre" : statut Green, ni Out ni In ni Out/In, et non annule (exclu de l'Avg)
+  function isCleanLap(lp){ if(lapVoided(lp)) return false; if((lp.status||'green')!=='green') return false; const m=(lp.mark||''); return !(m==='O'||m==='I'||m==='O/I'); }
   // Horloge HH:MM(:SS) <-> secondes
   function parseClock(str){ if(!str) return null; const m=String(str).trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/); if(!m) return null; return (+m[1])*3600+(+m[2])*60+(m[3]?+m[3]:0); }
   function fmtHMS(sec){ if(sec==null||!isFinite(sec)) return '-'; sec=Math.max(0,Math.round(sec)); const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60; return (h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(s<10?'0':'')+s; }
@@ -3513,8 +3528,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const laps=stint.laps||[];
     const secs=laps.map(lapEffSec).filter(v=>v!=null);
     const durationSec=secs.reduce((a,b)=>a+b,0);
-    const best=secs.length?Math.min.apply(null,secs):null;
-    const bestSec=(f)=>{ const v=laps.map(l=>parseLapTime(l[f])).filter(x=>x!=null); return v.length?Math.min.apply(null,v):null; };
+    // Un tour annule par track limits a bien ete roule (duree, conso) mais ne
+    // peut etre ni le meilleur tour ni entrer dans le meilleur tour theorique.
+    const timed=laps.map(lapTimedSec).filter(v=>v!=null);
+    const best=timed.length?Math.min.apply(null,timed):null;
+    const bestSec=(f)=>{ const v=laps.map(l=>lapSectorSec(l,f)).filter(x=>x!=null); return v.length?Math.min.apply(null,v):null; };
     const b1=bestSec('s1'),b2=bestSec('s2'),b3=bestSec('s3');
     const theo=(b1!=null&&b2!=null&&b3!=null)?(b1+b2+b3):null;
     const consos=laps.map(l=>parseFloat(String(l.conso||'').replace(',','.'))).filter(v=>!isNaN(v));
@@ -3732,7 +3750,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
     // Laps table (corps rempli par renderLapsBody) — bouton d'ajout AU-DESSUS pour ne pas bouger
     let lapsTable = '<div class="row" style="margin-bottom:8px;align-items:center;"><button class="secondary" id="rsAddLapBtn">+ Ajouter un tour</button><div id="rsSummary" class="rs-summary"></div></div>'+
-      '<div class="rs-laps-wrap"><table class="rs-laps"><thead><tr><th>L#</th><th>Statut</th><th>O/I</th><th>Laptime</th><th>S1</th><th>S2</th><th>S3</th><th>Speed</th><th title="Track limits">TL</th><th title="Classement">Pos</th><th>Notes</th><th>Conso</th><th>Fuel</th><th>km</th><th></th></tr></thead><tbody id="rsLapsBody"></tbody></table></div>';
+      '<div class="rs-laps-wrap"><table class="rs-laps"><thead><tr><th>L#</th><th>Statut</th><th>O/I</th><th>Laptime</th><th>S1</th><th>S2</th><th>S3</th><th>Speed</th><th title="Track limits : le secteur choisi et le temps au tour sont annules">TL</th><th title="Classement">Pos</th><th>Notes</th><th>Conso</th><th>Fuel</th><th>km</th><th></th></tr></thead><tbody id="rsLapsBody"></tbody></table></div>';
 
     // Ligne du bas : commentaires + pressions/temperatures
     let bottomRow = '<div class="rs-bottom">'+
@@ -3860,6 +3878,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         lp[f]=(t.type==='checkbox')?t.checked:t.value;
         // conso auto quand le statut piste change -> rebuild complet (couleurs)
         if(f==='status'){ const ref=(runEventObj()&&runEventObj().refConditions)||{}; if(t.value==='red') lp.conso='0'; else { const rk=rsTrack(t.value).ref; if(rk && ref[rk] && ref[rk].conso!=null && ref[rk].conso!=='') lp.conso=String(ref[rk].conso); } saveState(); renderLapsBody(taskKey); return; }
+        // secteur saisi en secondes : remis en m:ss,mmm s'il depasse la minute
+        if(f==='s1'||f==='s2'||f==='s3'){ lp[f]=rsSectorText(lp[f]); t.value=lp[f]; }
         // laptime = somme des secteurs si les 3 sont renseignes
         if(f==='s1'||f==='s2'||f==='s3'){ const a=lapAutoSec(lp); if(a!=null) lp.laptime=fmtLapTime(a); }
         // maj des cellules calculees SANS reconstruire les inputs (pour garder le focus / la tabulation)
@@ -3887,7 +3907,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const stt=rsTrack(lp.status||'green');
       const statusSel='<select class="rsLap rs-status-sel" data-i="'+i+'" data-f="status" style="background:'+stt.bg+';color:'+stt.fg+';">'+RS_TRACK.map(s=>'<option value="'+s.key+'" '+((lp.status||'green')===s.key?'selected':'')+'>'+s.label+'</option>').join('')+'</select>';
       const laptimeCell=auto!=null?'<span class="rs-auto">'+laptimeStr+'</span>':'<input type="text" class="rsLap" data-i="'+i+'" data-f="laptime" value="'+esc(lp.laptime||'')+'">';
-      const inp=(f,extra)=>'<input type="text" class="rsLap'+(extra||'')+'" data-i="'+i+'" data-f="'+f+'" value="'+esc(lp[f]||'')+'">';
+      const inp=(f,extra)=>{
+        const raw=(f==='s1'||f==='s2'||f==='s3') ? rsSectorText(lp[f]) : (lp[f]||'');
+        return '<input type="text" class="rsLap'+(extra||'')+'" data-i="'+i+'" data-f="'+f+'" value="'+esc(raw)+'">';
+      };
+      const tlNow=lapTl(lp);
+      const tlOpts=['','S1','S2','S3'].concat(tlNow==='lap'?['lap']:[])
+        .map(o=>'<option value="'+o+'" '+(tlNow===o?'selected':'')+'>'+(o===''?'-':(o==='lap'?'Tour':o))+'</option>').join('');
       return '<tr data-i="'+i+'">'+
         '<td>'+(i+1)+'</td>'+
         '<td>'+statusSel+'</td>'+
@@ -3895,7 +3921,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         '<td class="rsLaptime">'+laptimeCell+'</td>'+
         '<td class="rs-sec" data-sec="s1">'+inp('s1')+'</td><td class="rs-sec" data-sec="s2">'+inp('s2')+'</td><td class="rs-sec" data-sec="s3">'+inp('s3')+'</td>'+
         '<td>'+inp('speed',' rs-narrow')+'</td>'+
-        '<td><input type="checkbox" class="rsLap rs-tl-chk" data-i="'+i+'" data-f="tl" '+(lp.tl?'checked':'')+'></td>'+
+        '<td><select class="rsLap rs-tl-sel" data-i="'+i+'" data-f="tl" title="Secteur annule par track limits">'+tlOpts+'</select></td>'+
         '<td class="rs-pos" data-i="'+i+'"><input type="text" class="rsLap rs-pos-inp" data-i="'+i+'" data-f="pos" value="'+esc(lp.pos||'')+'"></td>'+
         '<td>'+inp('notes',' rs-notes')+'</td>'+
         '<td><input type="text" class="rsLap rs-narrow" data-i="'+i+'" data-f="conso" value="'+esc(lp.conso||'')+'"></td>'+
@@ -3917,13 +3943,19 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const minOf=(laps,fn)=>{ const v=laps.map(fn).filter(x=>x!=null); return v.length?Math.min.apply(null,v):null; };
     const eq=(a,b)=>a!=null&&b!=null&&Math.abs(a-b)<1e-6;
     const setCell=(cell,v,sBest,tBest)=>{ if(!cell) return; cell.classList.remove('rs-best-session','rs-best-stint'); if(v==null) return; if(eq(v,sBest)) cell.classList.add('rs-best-session'); else if(eq(v,tBest)) cell.classList.add('rs-best-stint'); };
-    const sBestLap=minOf(allLaps,lapEffSec), tBestLap=minOf(st.laps,lapEffSec);
+    const sBestLap=minOf(allLaps,lapTimedSec), tBestLap=minOf(st.laps,lapTimedSec);
     const sBestSec={}, tBestSec={};
-    ['s1','s2','s3'].forEach(f=>{ sBestSec[f]=minOf(allLaps,l=>parseLapTime(l[f])); tBestSec[f]=minOf(st.laps,l=>parseLapTime(l[f])); });
+    ['s1','s2','s3'].forEach(f=>{ sBestSec[f]=minOf(allLaps,l=>lapSectorSec(l,f)); tBestSec[f]=minOf(st.laps,l=>lapSectorSec(l,f)); });
     st.laps.forEach((lp,i)=>{
       const tr=body.querySelector('tr[data-i="'+i+'"]'); if(!tr) return;
-      setCell(tr.querySelector('.rsLaptime'), lapEffSec(lp), sBestLap, tBestLap);
-      ['s1','s2','s3'].forEach(f=>{ setCell(tr.querySelector('td.rs-sec[data-sec="'+f+'"]'), parseLapTime(lp[f]), sBestSec[f], tBestSec[f]); });
+      const ltCell=tr.querySelector('.rsLaptime');
+      setCell(ltCell, lapTimedSec(lp), sBestLap, tBestLap);
+      if(ltCell) ltCell.classList.toggle('rs-void', lapVoided(lp));
+      ['s1','s2','s3'].forEach(f=>{
+        const cell=tr.querySelector('td.rs-sec[data-sec="'+f+'"]');
+        setCell(cell, lapSectorSec(lp,f), sBestSec[f], tBestSec[f]);
+        if(cell) cell.classList.toggle('rs-void', sectorVoided(lp,f));
+      });
     });
   }
   // Coloration du classement : vert si place gagnee, rouge si perdue, rien si stable (vs tour precedent renseigne)
@@ -3967,11 +3999,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const el=document.getElementById('rsSummary'); if(!el) return;
     const lapSecs=st.laps.map(l=>{ const a=lapAutoSec(l); return a!=null?a:parseLapTime(l.laptime); });
     const laptimes=lapSecs.filter(v=>v!=null);
-    const best=laptimes.length?Math.min.apply(null,laptimes):null;
+    // Best / Theo : sans les temps annules par track limits
+    const timedSecs=st.laps.map(lapTimedSec).filter(v=>v!=null);
+    const best=timedSecs.length?Math.min.apply(null,timedSecs):null;
     // Avg : uniquement les tours "propres" (statut Green + ni Out ni In ni Out/In)
     const cleanSecs=st.laps.map((l,ix)=>isCleanLap(l)?lapSecs[ix]:null).filter(v=>v!=null);
     const avg=cleanSecs.length?cleanSecs.reduce((a,b)=>a+b,0)/cleanSecs.length:null;
-    const bestSec=(f)=>{ const v=st.laps.map(l=>parseLapTime(l[f])).filter(x=>x!=null); return v.length?Math.min.apply(null,v):null; };
+    const bestSec=(f)=>{ const v=st.laps.map(l=>lapSectorSec(l,f)).filter(x=>x!=null); return v.length?Math.min.apply(null,v):null; };
     const b1=bestSec('s1'),b2=bestSec('s2'),b3=bestSec('s3');
     const theo=(b1!=null&&b2!=null&&b3!=null)?(b1+b2+b3):null;
     const consos=st.laps.map(l=>parseFloat(String(l.conso||'').replace(',','.'))).filter(v=>!isNaN(v));
@@ -4509,16 +4543,16 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const r=getRunsheet(taskKey);
       const laps=[];
       r.stints.forEach(st=>{
-        const tyreStart=st.tyreSet?tyreSetStartKm(st.tyreSet):null;
+        const tyreStart=st.tyreSet?tyreSetKmBeforeSession(st.tyreSet, taskKey):null;
         const startFuel=effectiveStartFuel(st);
         let cumConso=0, doneInStint=0;
         st.laps.forEach((lp)=>{
-          const tSec=lapEffSec(lp);
+          const tSec=lapTimedSec(lp);
           const conso=parseFloat(String(lp.conso||'').replace(',','.')); if(!isNaN(conso)) cumConso+=conso;
-          if(tSec!=null) doneInStint++;
+          if(lapEffSec(lp)!=null) doneInStint++;
           const fuelRem=(startFuel!=null)?(startFuel-cumConso):null;
           const tyreKm=(tyreStart!=null)?(tyreStart+doneInStint*circuitKmKm):null;
-          laps.push({driver:st.driver||'(?)', tSec:tSec, s1:parseLapTime(lp.s1), s2:parseLapTime(lp.s2), s3:parseLapTime(lp.s3), fuelRem:fuelRem, tyreKm:tyreKm});
+          laps.push({driver:st.driver||'(?)', tSec:tSec, s1:lapSectorSec(lp,'s1'), s2:lapSectorSec(lp,'s2'), s3:lapSectorSec(lp,'s3'), fuelRem:fuelRem, tyreKm:tyreKm});
         });
       });
       if(laps.length) sessions.push({taskKey:taskKey, name:t.text||'Session', date:t.date||'', laps:laps});
