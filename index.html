@@ -2645,10 +2645,10 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         // Rappel du minimum reglementaire dans l'inventaire, et alerte rouge
         // des que l'epaisseur moyenne passe dessous (piece non conforme).
         const minNote = (c.minThickness!=null) ? '<div class="small thk-min-note">mini '+c.minThickness+'mm</div>' : '';
-        const below = !!(w && belowMinThickness(c, w.avg));
+        const below = itemBelowMin(c, item);
         const summary = w
           ? '<span class="'+(below?'thk-below-min':'')+'">moy '+w.avg+'mm'+(w.pct!=null?' - usure '+w.pct+'%':'')+dualMeasureSummary(c, item)+'</span>'+
-            (below?' <span class="thk-below-min-tag">sous le mini</span>':'')
+            (below?' <span class="thk-below-min-tag">point à '+round3(minThicknessValue(item))+'mm, sous le mini</span>':'')
           : '<span class="small">pas de mesure</span>';
         if(readOnlyThickness){
           thicknessCell = summary + minNote;
@@ -2741,6 +2741,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function belowMinThickness(cat, val){
     return !!(cat && cat.minThickness!=null && val!=null && val!=='' && Number(val) < cat.minThickness);
   }
+  // Point le plus fin releve sur une piece (c'est lui que regarde le controle
+  // technique : une moyenne conforme peut cacher un point hors tolerance).
+  function minThicknessValue(item){
+    const vals = (item && Array.isArray(item.thickness)) ? item.thickness.filter(v=>typeof v==='number') : [];
+    return vals.length ? Math.min.apply(null, vals) : null;
+  }
+  function itemBelowMin(cat, item){ return belowMinThickness(cat, minThicknessValue(item)); }
   function wireThresholdEditors(){
     document.querySelectorAll('.threshInput').forEach(inp=>{
       inp.addEventListener('change', (e)=>{
@@ -2973,8 +2980,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       html += '<div class="wm-row">'+
         '<div class="wm-row-head"><b>'+c.label+'</b> - <input type="text" class="wmCodeInput" data-id="'+item.id+'" value="'+(item.code||'').replace(/"/g,'&quot;')+'" style="width:140px;display:inline-block;">'+(item.position?' ['+item.position+']':'')+' <span class="status-pill '+item.status+'">'+STOCK_STATUS_LABEL[item.status]+'</span></div>'+
         '<div class="tm-inputs">'+thicknessInputsHtml(c, item, 'wmThicknessInput')+'</div>'+
-        '<div class="tm-result'+((w && belowMinThickness(c, w.avg))?' thk-below-min':'')+'">'+(w?('moy '+w.avg+'mm'+(w.pct!=null?' - '+w.pct+'% use':'')+dualMeasureSummary(c, item)):'pas de mesure')+
-          ((w && belowMinThickness(c, w.avg))?' <span class="thk-below-min-tag">sous le mini ('+c.minThickness+'mm)</span>':'')+'</div>'+
+        '<div class="tm-result'+(itemBelowMin(c, item)?' thk-below-min':'')+'">'+(w?('moy '+w.avg+'mm'+(w.pct!=null?' - '+w.pct+'% use':'')+dualMeasureSummary(c, item)):'pas de mesure')+
+          (itemBelowMin(c, item)?' <span class="thk-below-min-tag">point à '+round3(minThicknessValue(item))+'mm, sous le mini ('+c.minThickness+'mm)</span>':'')+'</div>'+
         '<div class="tm-stats-row"><span>Usure totale: <b>'+(stats.totalPct!=null?stats.totalPct+'%':'-')+'</b></span><span>Usure/mesure: <b>'+(stats.avgDelta!=null?'+'+stats.avgDelta+'pts':'-')+'</b></span><span>Stints restants: <b>'+(stats.theoStints!=null?stats.theoStints:'-')+'</b></span><span>Km restants estimes: <b>'+(stats.theoKm!=null?stats.theoKm+' km':'-')+'</b></span></div>'+
         renderWearSparkline(item)+
         '<div class="tm-actions">'+
