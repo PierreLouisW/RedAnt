@@ -1646,6 +1646,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // Run sheets (feuilles de run) par seance : { taskKey: {...} }
     if(!data.runsheets || typeof data.runsheets!=='object') data.runsheets = {};
     if(!data.runPlans || typeof data.runPlans!=='object') data.runPlans = {};
+    // Numero de voiture retenu pour l'import des temps depuis l'export chrono
+    if(typeof data.timingCarNumber!=='string') data.timingCarNumber = '';
     if(!Array.isArray(data.engineerEmails)) data.engineerEmails = [];
     // Pilotes (nom, categorie FIA, couleur)
     if(!Array.isArray(data.drivers)) data.drivers = [];
@@ -3515,6 +3517,104 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(next){ selectedRunContext.eventId=String(next.ev.id); selectedRunContext.taskKey=next.ev.id+'::'+next.t.id; }
   }
 
+  // ---------- Import des temps depuis l'export chrono officiel ----------
+  // Le fichier "Analysis" du chronometrage donne une ligne par tour et par
+  // voiture. La colonne CROSSING_FINISH_LINE_IN_PIT vaut "B" quand le tour a
+  // ete entame dans la pit lane : ce tour est la sortie d'un arret au stand,
+  // c'est donc lui qui ouvre un nouveau relais.
+  const TIMING_FLAGS = {GF:'green', FF:'green', YF:'fcy', FCY:'fcy', SC:'sc', SCS:'sc', RF:'red'};
+  const TIMING_COLS = ['NUMBER','LAP_NUMBER','LAP_TIME','CROSSING_FINISH_LINE_IN_PIT','S1','S2','S3','HOUR','TOP_SPEED','DRIVER_NAME','PIT_TIME','FLAG_AT_FL'];
+  // "43.919" / "2:17.733" / "13:05:23.637" -> secondes
+  function timingSec(str){
+    const s=String(str==null?'':str).trim().replace(',','.');
+    if(!s) return null;
+    const parts=s.split(':');
+    if(parts.some(x=>x===''||isNaN(parseFloat(x)))) return null;
+    return parts.reduce((acc,x)=>acc*60+parseFloat(x), 0);
+  }
+  // Format des cellules de la table des tours (secondes seules sous la minute)
+  function timingFmt(sec){ if(sec==null) return ''; return sec<60 ? sec.toFixed(3).replace('.',',') : fmtLapTime(sec); }
+  function parseTimingCsv(text){
+    const lines=String(text).replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n').split('\n').filter(l=>l.trim()!=='');
+    if(!lines.length) throw new Error('Le fichier est vide.');
+    const head=lines[0].split(';').map(x=>x.trim().toUpperCase());
+    const idx={}; TIMING_COLS.forEach(c=>{ idx[c]=head.indexOf(c); });
+    if(idx.NUMBER<0 || idx.LAP_NUMBER<0 || idx.LAP_TIME<0)
+      throw new Error('Entete inattendue : les colonnes NUMBER, LAP_NUMBER et LAP_TIME sont attendues. S’agit-il bien de l’export chrono "Analysis" de la seance ?');
+    const rows=[];
+    for(let i=1;i<lines.length;i++){
+      const c=lines[i].split(';').map(x=>x.trim());
+      const o={}; TIMING_COLS.forEach(k=>{ o[k]=(idx[k]>=0 && c[idx[k]]!=null)?c[idx[k]]:''; });
+      if(o.NUMBER) rows.push(o);
+    }
+    if(!rows.length) throw new Error('Aucune ligne de tour apres l’entete.');
+    return rows;
+  }
+  // Tours d'une voiture decoupes en relais : un tour marque "B" en ouvre un nouveau
+  function timingStintsForCar(rows, car){
+    const num=String(car).trim();
+    const mine=rows.filter(r=>String(r.NUMBER).trim()===num)
+                   .sort((a,b)=>(parseInt(a.LAP_NUMBER,10)||0)-(parseInt(b.LAP_NUMBER,10)||0));
+    const stints=[];
+    mine.forEach(r=>{
+      const pitOut=String(r.CROSSING_FINISH_LINE_IN_PIT||'').toUpperCase().indexOf('B')>=0;
+      if(!stints.length || pitOut) stints.push({driver:'', startTime:'', laps:[]});
+      const st=stints[stints.length-1];
+      const first=!st.laps.length;
+      const lapSec=timingSec(r.LAP_TIME), pitSec=timingSec(r.PIT_TIME);
+      st.laps.push({
+        mark: first?'O':'',
+        status: TIMING_FLAGS[String(r.FLAG_AT_FL||'').toUpperCase()] || 'green',
+        laptime: timingFmt(lapSec),
+        s1: timingFmt(timingSec(r.S1)), s2: timingFmt(timingSec(r.S2)), s3: timingFmt(timingSec(r.S3)),
+        speed: String(r.TOP_SPEED||''), tl:false, pos:'', conso:'',
+        notes: pitOut ? ('Arret stand'+(pitSec!=null?' '+timingFmt(pitSec):'')) : (first?'Sortie stand':'')
+      });
+      if(first){
+        st.driver=String(r.DRIVER_NAME||'').trim();
+        // Heure de debut du relais = passage sur la ligne moins le temps du tour
+        const h=timingSec(r.HOUR);
+        st.startTime=(h!=null)?fmtHMS(h-(lapSec||0)):'';
+      }
+    });
+    return stints;
+  }
+  // Nom du chrono ("Aditya PATEL") ramene au pilote deja connu de l'appli
+  function timingDriverName(name){
+    const raw=String(name||'').trim(); if(!raw) return '';
+    const norm=x=>String(x||'').toLowerCase().replace(/[^a-z]/g,'');
+    const ev=runEventObj();
+    const pool=[].concat((ev&&ev.drivers)||[], (STATE.drivers||[]).map(d=>d.name||'')).filter(Boolean);
+    const exact=pool.find(n=>norm(n)===norm(raw)); if(exact) return exact;
+    const last=raw.split(/\s+/).pop();
+    if(norm(last).length>2){ const part=pool.find(n=>norm(n).indexOf(norm(last))>=0); if(part) return part; }
+    return raw;
+  }
+  // Ecrit les relais importes : les tours sont remplaces, mais ce qui a ete
+  // saisi a la main sur un relais deja present (pressions, temperatures,
+  // essence, pneus, setup, conditions, commentaires) est conserve.
+  function applyTimingImport(taskKey, imported){
+    const r=getRunsheet(taskKey);
+    const previous=r.stints;
+    const ref=(runEventObj()&&runEventObj().refConditions)||{};
+    r.stints=imported.map((s,i)=>{
+      const st=normStint(previous[i]||{});
+      const drv=timingDriverName(s.driver); if(drv) st.driver=drv;
+      if(s.startTime) st.startTime=s.startTime;
+      const def=stintDefaultLap(st);
+      st.laps=s.laps.map(lp=>{
+        const rk=rsTrack(lp.status).ref;
+        let conso=def.conso;
+        if(lp.status==='red') conso='0';
+        else if(rk && ref[rk] && ref[rk].conso!=null && ref[rk].conso!=='') conso=String(ref[rk].conso);
+        return Object.assign({}, lp, {conso:String(conso||'')});
+      });
+      return st;
+    });
+    r.activeStint=0;
+    return r.stints;
+  }
+
   function renderRunsheetTab(){
     const evtSel = document.getElementById('runEventSelect');
     if(!evtSel) return;
@@ -3616,12 +3716,53 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
     const friezeBlock = '<div class="rs-frieze-lbl">Plan prévu</div><div id="rsPlanFrieze" class="rs-frieze-wrap"></div>'+
       '<div class="rs-frieze-lbl">Réel (runsheet)</div><div id="rsFrieze" class="rs-frieze-wrap"></div>';
-    box.innerHTML = stintTabs + friezeBlock + condBlock + lapsTable + bottomRow;
+    // Import des temps depuis l'export chrono officiel de la seance
+    const importRow = '<div class="row" style="gap:8px;align-items:center;margin-bottom:10px;">'+
+      '<button class="secondary" id="rsImportTimingBtn">Importer les temps (CSV chrono)</button>'+
+      '<label class="small" style="display:flex;align-items:center;gap:6px;margin:0;">Voiture n°'+
+        '<input type="text" id="rsTimingCar" value="'+esc(STATE.timingCarNumber||'')+'" placeholder="36" style="width:60px;margin:0;padding:4px 6px;"></label>'+
+      '<input type="file" id="rsTimingCsvInput" accept=".csv,.txt" style="display:none;">'+
+      '<span class="small">Export "Analysis" de la seance : chaque passage au stand (<b>B</b>) ouvre un nouveau relais.</span>'+
+    '</div>';
+    box.innerHTML = importRow + stintTabs + friezeBlock + condBlock + lapsTable + bottomRow;
     renderRunFrieze(taskKey);
     const tmInput=box.querySelector('#rsTrackmapInput');
     if(tmInput) tmInput.addEventListener('change', e=>{ const file=e.target.files&&e.target.files[0]; if(!file||!ev) return; const reader=new FileReader(); reader.onload=()=>{ ev.trackmapImg=reader.result; saveState(); renderRunsheetTab(); }; reader.readAsDataURL(file); });
     const tmDel=box.querySelector('#rsTrackmapDel');
     if(tmDel) tmDel.addEventListener('click', ()=>{ if(ev){ ev.trackmapImg=''; saveState(); renderRunsheetTab(); } });
+    const carInp=box.querySelector('#rsTimingCar');
+    if(carInp) carInp.addEventListener('change', ()=>{ STATE.timingCarNumber=carInp.value.trim(); saveState(); });
+    const impBtn=box.querySelector('#rsImportTimingBtn'), impInp=box.querySelector('#rsTimingCsvInput');
+    if(impBtn && impInp){
+      impBtn.addEventListener('click', ()=>{
+        if(!carInp || !carInp.value.trim()){ alert('Indiquez le numéro de voiture avant d’importer.'); if(carInp) carInp.focus(); return; }
+        STATE.timingCarNumber=carInp.value.trim(); saveState();
+        impInp.value=''; impInp.click();
+      });
+      impInp.addEventListener('change', e=>{
+        const file=e.target.files&&e.target.files[0]; if(!file) return;
+        const car=carInp.value.trim();
+        const rd=new FileReader();
+        rd.onload=()=>{
+          let imported;
+          try{ imported=timingStintsForCar(parseTimingCsv(String(rd.result||'')), car); }
+          catch(err){ alert('Import impossible.\n\n'+(err && err.message ? err.message : err)); return; }
+          if(!imported.length){ alert('Aucun tour pour la voiture n°'+car+' dans ce fichier.'); return; }
+          const nLaps=imported.reduce((a,s)=>a+s.laps.length,0);
+          const rr=getRunsheet(taskKey);
+          const existants=rr.stints.reduce((a,s)=>a+(s.laps||[]).length,0);
+          let msg='Importer '+imported.length+' relais / '+nLaps+' tours pour la voiture n°'+car+' ?';
+          if(existants) msg+='\n\nLes '+existants+' tours déjà saisis dans cette run sheet seront remplacés (pressions, essence, pneus et commentaires des relais sont conservés).';
+          const surplus=rr.stints.slice(imported.length).filter(anyFilled).length;
+          if(surplus) msg+='\n\nLa run sheet compte plus de relais que le fichier : les '+surplus+' derniers relais renseignés seront supprimés.';
+          if(!confirm(msg)) return;
+          applyTimingImport(taskKey, imported);
+          saveState(); renderRunsheetTab();
+          alert('Import terminé : '+imported.length+' relais, '+nLaps+' tours.');
+        };
+        rd.readAsText(file);
+      });
+    }
     box.querySelectorAll('.rs-stint-tab').forEach(btn=>btn.addEventListener('click', ()=>{ getRunsheet(taskKey).activeStint=Number(btn.dataset.stint); saveState(); renderRunsheetTab(); }));
     const addStintBtn=box.querySelector('#rsAddStintBtn');
     if(addStintBtn) addStintBtn.addEventListener('click', ()=>{ const rr=getRunsheet(taskKey); const prev=rr.stints[rr.stints.length-1]||{}; const ns=normStint({ driver:prev.driver||'', setupId:prev.setupId||'', tyreSet:'', startTime:'' }); const prevEnd=stintStats(prev).fuelEnd; if(prevEnd!=null) ns.fuel.startFuel=String(Math.round(prevEnd*100)/100); rr.stints.push(ns); rr.activeStint=rr.stints.length-1; saveState(); renderRunsheetTab(); });
