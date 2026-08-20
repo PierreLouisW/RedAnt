@@ -1664,6 +1664,22 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       });
       data._tyreKmAutoMig = true;
     }
+    // Le montage pneu/jante vit dans le stock (extra.rimSetCode) : on y remonte
+    // une fois pour toutes les montages deja renseignes dans les events.
+    if(!data._rimMountStockMig){
+      const tyreItems = data.stockItems.filter(i=>i.categoryKey==='tyre');
+      const pris = new Set(tyreItems.filter(i=>i.extra && i.extra.rimSetCode).map(i=>i.extra.rimSetCode));
+      const dejaMonte = (code)=> tyreItems.some(i=>i.code===code && i.extra && i.extra.rimSetCode);
+      (data.mlmcEvents||[]).forEach(ev=>{
+        (ev.tyreSets||[]).forEach(t=>{
+          if(!t.rimSet || pris.has(t.rimSet) || dejaMonte(t.code)) return;
+          tyreItems.forEach(i=>{ if(i.code===t.code){ i.extra=i.extra||{}; i.extra.rimSetCode=t.rimSet; } });
+          pris.add(t.rimSet);
+        });
+      });
+      data.stockItems.forEach(i=>{ if(i.categoryKey==='rim') i.status = pris.has(i.code) ? 'voiture' : 'atelier'; });
+      data._rimMountStockMig = true;
+    }
     if(!Array.isArray(data.engineerEmails)) data.engineerEmails = [];
     // Pilotes (nom, categorie FIA, couleur)
     if(!Array.isArray(data.drivers)) data.drivers = [];
@@ -2266,19 +2282,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
     document.querySelectorAll('.tyreRimSetSelect').forEach(sel=>{
       sel.addEventListener('change', (e)=>{
-        const code = e.target.dataset.code;
-        const newRimSet = e.target.value;
-        // libere ce set de jante s'il etait attribue a un autre train
-        if(newRimSet){
-          STATE.stockItems.forEach(i=>{
-            if(i.categoryKey==='tyre' && i.code!==code && i.extra && i.extra.rimSetCode===newRimSet){
-              i.extra.rimSetCode = '';
-            }
-          });
-        }
-        STATE.stockItems.forEach(i=>{ if(i.categoryKey==='tyre' && i.code===code){ i.extra=i.extra||{}; i.extra.rimSetCode = newRimSet; } });
-        syncRimStatuses();
+        setTyreSetRim(e.target.dataset.code, e.target.value);
         saveState();
+        renderStockTable();
       });
     });
 
@@ -2339,6 +2345,32 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     return STATE.stockItems.some(i=>i.categoryKey==='tyre' && i.extra && i.extra.rimSetCode===rimSetCode);
   }
   // Aligne le statut des jantes : Voiture si montee, sinon Atelier (statut derive Monte/Non monte)
+  // Monter un train de pneus sur un set de jantes. Le lien vit dans le stock
+  // (extra.rimSetCode des 4 pneus) et est recopie dans les events, pour que la
+  // Run Sheet et l'inventaire disent toujours la meme chose.
+  function setTyreSetRim(tyreCode, rimCode){
+    if(!tyreCode) return;
+    const rim = rimCode || '';
+    STATE.stockItems.forEach(i=>{
+      if(i.categoryKey!=='tyre') return;
+      if(i.code===tyreCode){ i.extra=i.extra||{}; i.extra.rimSetCode=rim; }
+      // un set de jantes ne peut porter qu'un train a la fois
+      else if(rim && i.extra && i.extra.rimSetCode===rim) i.extra.rimSetCode='';
+    });
+    (STATE.mlmcEvents||[]).forEach(ev=>{
+      (ev.tyreSets||[]).forEach(t=>{
+        if(t.code===tyreCode){ t.rimSet=rim; if(rim) t.mounted=true; }
+        else if(rim && t.rimSet===rim) t.rimSet='';
+      });
+    });
+    syncRimStatuses();
+  }
+  // Set de jantes monte sous un train de pneus
+  function tyreSetRimCode(code){
+    const g=groupSetsByCode('tyre')[code]; if(!g) return '';
+    const it=TYRE_POSITIONS.map(pos=>g[pos]).filter(Boolean)[0];
+    return (it && it.extra && it.extra.rimSetCode) || '';
+  }
   function syncRimStatuses(){
     let changed=false;
     STATE.stockItems.forEach(i=>{
@@ -3779,36 +3811,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       '<input type="file" id="rsTimingCsvInput" accept=".csv,.txt" style="display:none;">'+
       '<span class="small">Export "Analysis" de la seance : chaque passage au stand (<b>B</b>) ouvre un nouveau relais.</span>'+
     '</div>';
-    // Etat du report des km pneus vers le stock
-    const kmParTrain = runsheetTyreKm(taskKey);
-    const dejaReporte = tyreKmApplied(taskKey);
-    let tyreKmRow='';
-    if(kmParTrain===null){
-      const utilise = r.stints.some(s2=>String(s2.tyreSet||'').trim() && (s2.laps||[]).length);
-      if(utilise) tyreKmRow='<div class="small" style="margin-bottom:10px;">Km pneus non reportables : renseignez la longueur du circuit (m/tour) de cet évènement dans l’onglet Calendrier.</div>';
-    } else if(Object.keys(kmParTrain).length){
-      const reste = Object.keys(kmParTrain).filter(c=>round3(kmParTrain[c])!==round3(Number(dejaReporte[c])||0));
-      tyreKmRow='<div class="row" style="gap:10px;align-items:center;margin-bottom:10px;">'+
-        '<span class="small">Km pneus de la séance : '+Object.keys(kmParTrain).map(c=>'<b>'+esc(c)+'</b> '+round3(kmParTrain[c])+' km').join(' · ')+'</span>'+
-        (reste.length
-          ? '<button class="secondary" id="rsTyreKmBtn">Reporter au stock</button>'+
-            '<span class="small">'+(tyreKmAutoOn(taskKey)?'(sinon reporté automatiquement à la fin de la séance)':'(séance antérieure au report automatique : à reporter à la main)')+'</span>'
-          : '<span class="small">✔ reporté au stock</span>')+
-      '</div>';
-    }
-    box.innerHTML = importRow + tyreKmRow + stintTabs + friezeBlock + condBlock + lapsTable + bottomRow;
+    box.innerHTML = importRow + '<div id="rsTyreKmRow"></div>' + stintTabs + friezeBlock + condBlock + lapsTable + bottomRow;
+    renderTyreKmRow(taskKey);
     renderRunFrieze(taskKey);
     const tmInput=box.querySelector('#rsTrackmapInput');
     if(tmInput) tmInput.addEventListener('change', e=>{ const file=e.target.files&&e.target.files[0]; if(!file||!ev) return; const reader=new FileReader(); reader.onload=()=>{ ev.trackmapImg=reader.result; saveState(); renderRunsheetTab(); }; reader.readAsDataURL(file); });
     const tmDel=box.querySelector('#rsTrackmapDel');
     if(tmDel) tmDel.addEventListener('click', ()=>{ if(ev){ ev.trackmapImg=''; saveState(); renderRunsheetTab(); } });
-    const tyreKmBtn=box.querySelector('#rsTyreKmBtn');
-    if(tyreKmBtn) tyreKmBtn.addEventListener('click', ()=>{
-      const ch=syncTyreMileageFromRunsheet(taskKey);
-      if(!ch.length){ alert('Rien à reporter : le stock est déjà à jour pour cette séance.'); return; }
-      saveState(); renderRunsheetTab(); renderStockTab();
-      alert('Km ajoutés au stock :\n'+ch.map(c=>c.code+' : '+(c.delta>0?'+':'')+round3(c.delta)+' km (total séance '+round3(c.km)+' km)').join('\n'));
-    });
     const carInp=box.querySelector('#rsTimingCar');
     if(carInp) carInp.addEventListener('change', ()=>{ STATE.timingCarNumber=carInp.value.trim(); saveState(); });
     const impBtn=box.querySelector('#rsImportTimingBtn'), impInp=box.querySelector('#rsTimingCsvInput');
@@ -3890,6 +3899,40 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const addBtn=box.querySelector('#rsAddLapBtn');
     if(addBtn) addBtn.addEventListener('click', ()=>{ const stt=getStint(taskKey); const def=stintDefaultLap(stt); stt.laps.push({mark:'',status:'green',laptime:def.laptime,s1:'',s2:'',s3:'',speed:'',conso:def.conso,notes:''}); saveState(); renderLapsBody(taskKey); });
   }
+  // Km pneus/jantes de la seance et etat du report vers le stock. Rafraichi a
+  // chaque changement de tour : les km bougent des qu'on ajoute ou retire un tour.
+  function renderTyreKmRow(taskKey){
+    const box=document.getElementById('rsTyreKmRow'); if(!box) return;
+    const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
+    const r=getRunsheet(taskKey);
+    const kmParTrain=runsheetTyreKm(taskKey);
+    if(kmParTrain===null){
+      const utilise=r.stints.some(s=>String(s.tyreSet||'').trim() && (s.laps||[]).length);
+      box.innerHTML = utilise ? '<div class="small" style="margin-bottom:10px;">Km pneus non reportables : renseignez la longueur du circuit (m/tour) de cet évènement dans l’onglet Calendrier.</div>' : '';
+      return;
+    }
+    if(!Object.keys(kmParTrain).length){ box.innerHTML=''; return; }
+    const kmParJante=runsheetRimKm(taskKey)||{};
+    const ecart=(want,done)=>Object.keys(want).filter(c=>round3(want[c])!==round3(Number(done[c])||0));
+    const reste=ecart(kmParTrain, tyreKmApplied(taskKey)).concat(ecart(kmParJante, rimKmApplied(taskKey)));
+    box.innerHTML='<div class="row" style="gap:10px;align-items:center;margin-bottom:10px;">'+
+      '<span class="small">Km pneus de la séance : '+Object.keys(kmParTrain).map(c=>{
+        const rim=tyreSetRimCode(c);
+        return '<b>'+esc(c)+'</b>'+(rim?' <span class="small">(jantes '+esc(rim)+')</span>':'')+' '+round3(kmParTrain[c])+' km';
+      }).join(' · ')+'</span>'+
+      (reste.length
+        ? '<button class="secondary" id="rsTyreKmBtn">Reporter au stock</button>'+
+          '<span class="small">'+(tyreKmAutoOn(taskKey)?'(sinon reporté automatiquement à la fin de la séance)':'(séance antérieure au report automatique : à reporter à la main)')+'</span>'
+        : '<span class="small">✔ reporté au stock</span>')+
+    '</div>';
+    const btn=box.querySelector('#rsTyreKmBtn');
+    if(btn) btn.addEventListener('click', ()=>{
+      const ch=syncTyreMileageFromRunsheet(taskKey);
+      if(!ch.length){ alert('Rien à reporter : le stock est déjà à jour pour cette séance.'); return; }
+      saveState(); renderTyreKmRow(taskKey); renderStockTab();
+      alert('Km ajoutés au stock :\n'+ch.map(c=>c.code+(c.cat==='rim'?' (jantes)':' (pneus)')+' : '+(c.delta>0?'+':'')+round3(c.delta)+' km (total séance '+round3(c.km)+' km)').join('\n'));
+    });
+  }
   function renderLapsBody(taskKey){
     const st=getStint(taskKey); const body=document.getElementById('rsLapsBody'); if(!body) return;
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
@@ -3934,6 +3977,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     applyBestColors(taskKey);
     applyPosColors(taskKey);
     renderRunFrieze(taskKey);
+    renderTyreKmRow(taskKey);
   }
   // Coloration meilleur secteur/tour : violet = meilleur de la session (tous relais), vert = meilleur du relais en cours
   function applyBestColors(taskKey){
@@ -3993,6 +4037,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     applyBestColors(taskKey);
     applyPosColors(taskKey);
     renderRunFrieze(taskKey);
+    renderTyreKmRow(taskKey);
   }
   function updateRunSummary(taskKey){
     const st=getStint(taskKey); if(!st) return;
@@ -4129,6 +4174,21 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const r=(STATE.runsheets||{})[taskKey];
     return (r && r.tyreKmApplied && typeof r.tyreKmApplied==='object') ? r.tyreKmApplied : {};
   }
+  function rimKmApplied(taskKey){
+    const r=(STATE.runsheets||{})[taskKey];
+    return (r && r.rimKmApplied && typeof r.rimKmApplied==='object') ? r.rimKmApplied : {};
+  }
+  // Km de la seance par set de jantes : ceux du train monte dessus
+  function runsheetRimKm(taskKey){
+    const perTyre=runsheetTyreKm(taskKey);
+    if(!perTyre) return null;
+    const out={};
+    Object.keys(perTyre).forEach(code=>{
+      const rim=tyreSetRimCode(code);
+      if(rim) out[rim]=round3((out[rim]||0)+perTyre[code]);
+    });
+    return out;
+  }
   // Compteur du stock d'un train AVANT ce que cette seance lui a deja reporte :
   // sans cela la colonne km de la run sheet sauterait apres le report.
   function tyreSetKmBeforeSession(code, taskKey){
@@ -4149,28 +4209,35 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
   // Applique au stock l'ecart entre km roules et km deja reportes. Renvoie la
   // liste des trains modifies (vide si le stock est deja a jour).
-  function syncTyreMileageFromRunsheet(taskKey){
-    const want=runsheetTyreKm(taskKey);
-    if(!want) return [];
-    const r=STATE.runsheets[taskKey];
-    const done=tyreKmApplied(taskKey), groups=groupSetsByCode('tyre');
+  function applySetKm(categoryKey, want, done){
+    const groups=groupSetsByCode(categoryKey);
     const codes=Object.keys(want);
     Object.keys(done).forEach(c=>{ if(codes.indexOf(c)<0) codes.push(c); });
     const applied={}, changes=[];
     codes.forEach(code=>{
       const cible=round3(want[code]||0), fait=round3(Number(done[code])||0), delta=round3(cible-fait);
       const g=groups[code];
-      // Train sorti du stock : on garde le compteur de report tel quel
+      // Set sorti du stock : on garde le compteur de report tel quel
       if(!g){ if(fait) applied[code]=fait; return; }
       if(delta){
         TYRE_POSITIONS.forEach(pos=>{ const it=g[pos]; if(it) it.mileage=round3(Math.max(0,(Number(it.mileage)||0)+delta)); });
-        changes.push({code:code, delta:delta, km:cible});
+        changes.push({cat:categoryKey, code:code, delta:delta, km:cible});
       }
       if(cible) applied[code]=cible;
     });
-    r.tyreKmApplied=applied;
+    return {applied:applied, changes:changes};
+  }
+  function syncTyreMileageFromRunsheet(taskKey){
+    const want=runsheetTyreKm(taskKey);
+    if(!want) return [];
+    const r=STATE.runsheets[taskKey];
+    const tyres=applySetKm('tyre', want, tyreKmApplied(taskKey));
+    r.tyreKmApplied=tyres.applied;
+    // Les jantes prennent les memes km que le train monte dessus
+    const rims=applySetKm('rim', runsheetRimKm(taskKey)||{}, rimKmApplied(taskKey));
+    r.rimKmApplied=rims.applied;
     r.tyreKmAuto=true; // une fois reportee, la seance suit les corrections toute seule
-    return changes;
+    return tyres.changes.concat(rims.changes);
   }
   // Une seance est reportee toute seule des qu'elle est terminee (horaire du
   // Calendrier), sauf celles anterieures a la mise en place de la fonction.
@@ -4213,14 +4280,17 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         ev.tyreSets.map((t,i)=>{
           const comp=tyreSetCompound(t.code);
           const cclass = comp==='W'?'compound-wet':(comp==='S'?'compound-slick':'');
-          const mountCell = t.rimSet
+          // Le montage fait foi cote stock : la Run Sheet et l'inventaire
+          // affichent la meme jante, quel que soit l'endroit ou on l'a montee.
+          const rimNow = tyreSetRimCode(t.code);
+          const mountCell = rimNow
             ? '<input type="checkbox" checked disabled title="Monte (set de jante attribue)">'
             : '<input type="checkbox" class="rsTyreMounted" data-i="'+i+'" '+(t.mounted?'checked':'')+'>';
           const kmCell = (pos)=>{ const v=tyreSetKm(t.code,pos); return '<td>'+(v!=null?esc(v):'-')+'</td>'; };
           return '<tr data-i="'+i+'" class="'+cclass+'">'+
             '<td style="text-align:left;font-weight:600;">'+esc(tyreSetLabel(t.code))+'</td>'+
             '<td>'+mountCell+'</td>'+
-            '<td><select class="rsTyreF" data-i="'+i+'" data-f="rimSet">'+rimOptsA(t.rimSet)+'</select></td>'+
+            '<td><select class="rsTyreF" data-i="'+i+'" data-f="rimSet">'+rimOptsA(rimNow)+'</select></td>'+
             kmCell('FL')+kmCell('FR')+kmCell('RL')+kmCell('RR')+
             '<td><input type="text" class="rsTyreF" data-i="'+i+'" data-f="notes" value="'+esc(t.notes||'')+'" style="min-width:100px;"></td>'+
             '<td><button class="rs-tyre-del" data-i="'+i+'" title="Retirer">&times;</button></td>'+
@@ -4254,7 +4324,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(addDriverBtn) addDriverBtn.addEventListener('click', ()=>openDriverPickerModal(ev));
     box.querySelectorAll('.rsRefCond').forEach(inp=>inp.addEventListener('change', e=>{ const c=e.target.dataset.cond; ev.refConditions[c]=ev.refConditions[c]||{}; ev.refConditions[c][e.target.dataset.f]=e.target.value; saveState(); }));
     box.querySelectorAll('.rsRefDriver').forEach(inp=>inp.addEventListener('change', e=>{ const n=e.target.dataset.driver; ev.refDrivers[n]=ev.refDrivers[n]||{}; ev.refDrivers[n][e.target.dataset.f]=e.target.value; saveState(); }));
-    box.querySelectorAll('.rsTyreF').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); if(ev.tyreSets[i]){ ev.tyreSets[i][e.target.dataset.f]=e.target.value; if(e.target.dataset.f==='rimSet' && e.target.value) ev.tyreSets[i].mounted=true; } saveState(); if(e.target.dataset.f==='rimSet') renderRunAccueil(); }));
+    box.querySelectorAll('.rsTyreF').forEach(el=>el.addEventListener('change', e=>{
+      const i=Number(e.target.dataset.i), t=ev.tyreSets[i]; if(!t) return;
+      // Monter une jante ici, c'est la monter dans le stock : le kilometrage du
+      // set de jantes suivra alors les tours de ce train.
+      if(e.target.dataset.f==='rimSet'){ setTyreSetRim(t.code, e.target.value); saveState(); renderRunAccueil(); renderStockTab(); return; }
+      t[e.target.dataset.f]=e.target.value; saveState();
+    }));
     box.querySelectorAll('.rsTyreMounted').forEach(el=>el.addEventListener('change', e=>{ const i=Number(e.target.dataset.i); if(ev.tyreSets[i]) ev.tyreSets[i].mounted=e.target.checked; saveState(); }));
     box.querySelectorAll('.rs-tyre-del').forEach(btn=>btn.addEventListener('click', ()=>{ ev.tyreSets.splice(Number(btn.dataset.i),1); saveState(); renderRunAccueil(); }));
     const addTyreBtn=box.querySelector('#rsAddTyreBtn');
@@ -4283,7 +4359,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const close=()=>overlay.remove();
     overlay.querySelector('#rsTyreClose').onclick=close;
     overlay.addEventListener('click', e=>{ if(e.target===overlay) close(); });
-    overlay.querySelector('#rsTyreOk').onclick=()=>{ const chosen=Array.from(overlay.querySelectorAll('.rsPickTyre:checked')).map(cb=>cb.value); ev.tyreSets=chosen.map(code=>{ const ex=ev.tyreSets.find(t=>t.code===code); return ex || {code:code, name:'', mounted:false, rimSet:'', km:{fl:'',fr:'',rl:'',rr:''}, coldPress:{fl:'',fr:'',rl:'',rr:''}, notes:''}; }); saveState(); close(); renderRunAccueil(); };
+    overlay.querySelector('#rsTyreOk').onclick=()=>{ const chosen=Array.from(overlay.querySelectorAll('.rsPickTyre:checked')).map(cb=>cb.value); ev.tyreSets=chosen.map(code=>{ const ex=ev.tyreSets.find(t=>t.code===code); return ex || {code:code, name:'', mounted:!!tyreSetRimCode(code), rimSet:tyreSetRimCode(code), km:{fl:'',fr:'',rl:'',rr:''}, coldPress:{fl:'',fr:'',rl:'',rr:''}, notes:''}; }); saveState(); close(); renderRunAccueil(); };
   }
   function openDriverPickerModal(ev){
     const esc=(x)=>(x==null?'':String(x)).replace(/"/g,'&quot;');
