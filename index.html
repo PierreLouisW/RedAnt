@@ -1400,6 +1400,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // Plaquette = 2 plaquettes (interieur + exterieur) -> 6 mesures d'epaisseur
     const padCatMig = data.stockCategories.find(c=>c.key==='pad');
     if(padCatMig && padCatMig.dualMeasure!==true) padCatMig.dualMeasure = true;
+    if(padCatMig && !Array.isArray(padCatMig.measureLabels)) padCatMig.measureLabels = ['Int','Ext'];
+    // Planche : releve en 6 points, 3 a l'avant et 3 a l'arriere de la planche
+    const plankCatMeasMig = data.stockCategories.find(c=>c.key==='plank');
+    if(plankCatMeasMig && plankCatMeasMig.dualMeasure!==true) plankCatMeasMig.dualMeasure = true;
+    if(plankCatMeasMig && !Array.isArray(plankCatMeasMig.measureLabels)) plankCatMeasMig.measureLabels = ['Avant','Arrière'];
     // Positions Left/Right (au lieu de Front/Rear ou FL/FR...) pour disc/bell/pad, editables
     if(!data.stockPosLRMig){
       ['disc','bell','pad'].forEach(key=>{ const cat=data.stockCategories.find(c=>c.key===key); if(cat) cat.positions=['L','R']; });
@@ -1938,20 +1943,33 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
   // nombre de points de mesure (6 pour plaquette double face, sinon 3)
   function measurePointCount(cat){ return (cat && cat.dualMeasure) ? 6 : 3; }
-  // moyenne d'une sous-plage de mesures (pour afficher Int/Ext des plaquettes)
+  // libelles des deux groupes de mesures (Int/Ext plaquette, Avant/Arriere planche)
+  function measureFaceLabels(cat){
+    const l = cat && cat.measureLabels;
+    return (Array.isArray(l) && l.length===2) ? l : ['Int','Ext'];
+  }
+  // moyenne d'une sous-plage de mesures (pour afficher les deux groupes)
   function subAvg(item, start, end){
     const vals = (item.thickness||[]).slice(start, end).filter(v=>typeof v==='number');
     return vals.length ? round3(vals.reduce((a,b)=>a+b,0)/vals.length) : null;
   }
-  // HTML des inputs d'epaisseur (groupes Int/Ext si double face)
+  // HTML des inputs d'epaisseur (deux groupes de 3 si la piece se mesure en 6 points)
   function thicknessInputsHtml(cat, item, cls){
     const vals = item.thickness || [];
     const one = (idx)=>'<input type="number" step="0.01" class="'+cls+'" data-id="'+item.id+'" data-idx="'+idx+'" value="'+(vals[idx]!=null?vals[idx]:'')+'" style="'+thicknessInputColor(cat, vals[idx])+'width:52px;display:inline-block;" placeholder="pt'+((idx%3)+1)+'">';
     if(cat && cat.dualMeasure){
-      return '<span class="tm-face"><span class="tm-face-label">Int</span>'+[0,1,2].map(one).join('')+'</span>'+
-             '<span class="tm-face"><span class="tm-face-label">Ext</span>'+[3,4,5].map(one).join('')+'</span>';
+      const lbl = measureFaceLabels(cat);
+      return '<span class="tm-face"><span class="tm-face-label">'+lbl[0]+'</span>'+[0,1,2].map(one).join('')+'</span>'+
+             '<span class="tm-face"><span class="tm-face-label">'+lbl[1]+'</span>'+[3,4,5].map(one).join('')+'</span>';
     }
     return [0,1,2].map(one).join(' ');
+  }
+  // Resume "Avant 22.1mm / Arriere 20.9mm" des deux groupes de mesures
+  function dualMeasureSummary(cat, item){
+    if(!cat || !cat.dualMeasure) return '';
+    const lbl = measureFaceLabels(cat), a = subAvg(item,0,3), b = subAvg(item,3,6);
+    if(a==null && b==null) return '';
+    return ' — '+lbl[0]+' '+(a!=null?a+'mm':'-')+' / '+lbl[1]+' '+(b!=null?b+'mm':'-');
   }
 
   function findSessionByKey(key){
@@ -2629,14 +2647,13 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         const minNote = (c.minThickness!=null) ? '<div class="small thk-min-note">mini '+c.minThickness+'mm</div>' : '';
         const below = !!(w && belowMinThickness(c, w.avg));
         const summary = w
-          ? '<span class="'+(below?'thk-below-min':'')+'">moy '+w.avg+'mm'+(w.pct!=null?' - usure '+w.pct+'%':'')+'</span>'+
+          ? '<span class="'+(below?'thk-below-min':'')+'">moy '+w.avg+'mm'+(w.pct!=null?' - usure '+w.pct+'%':'')+dualMeasureSummary(c, item)+'</span>'+
             (below?' <span class="thk-below-min-tag">sous le mini</span>':'')
           : '<span class="small">pas de mesure</span>';
         if(readOnlyThickness){
           thicknessCell = summary + minNote;
         } else {
-          const vals = item.thickness || [null,null,null];
-          thicknessCell = [0,1,2].map(idx=>'<input type="number" step="0.01" class="stockThicknessInput" data-id="'+item.id+'" data-idx="'+idx+'" value="'+(vals[idx]!=null?vals[idx]:'')+'" style="'+thicknessInputColor(c, vals[idx])+'width:56px;display:inline-block;">').join(' ');
+          thicknessCell = thicknessInputsHtml(c, item, 'stockThicknessInput');
           if(w) thicknessCell += '<div class="small">'+summary+'</div>';
           thicknessCell += minNote;
         }
@@ -2693,6 +2710,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
         if(!item) return;
         const idx = Number(e.target.dataset.idx);
         if(!Array.isArray(item.thickness)) item.thickness = [null,null,null];
+        while(item.thickness.length<=idx) item.thickness.push(null);
         item.thickness[idx] = e.target.value===''? null : Number(e.target.value);
         saveState();
       });
@@ -2955,7 +2973,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       html += '<div class="wm-row">'+
         '<div class="wm-row-head"><b>'+c.label+'</b> - <input type="text" class="wmCodeInput" data-id="'+item.id+'" value="'+(item.code||'').replace(/"/g,'&quot;')+'" style="width:140px;display:inline-block;">'+(item.position?' ['+item.position+']':'')+' <span class="status-pill '+item.status+'">'+STOCK_STATUS_LABEL[item.status]+'</span></div>'+
         '<div class="tm-inputs">'+thicknessInputsHtml(c, item, 'wmThicknessInput')+'</div>'+
-        '<div class="tm-result'+((w && belowMinThickness(c, w.avg))?' thk-below-min':'')+'">'+(w?('moy '+w.avg+'mm'+(w.pct!=null?' - '+w.pct+'% use':'')+(c.dualMeasure?(' — Int '+(subAvg(item,0,3)!=null?subAvg(item,0,3)+'mm':'-')+' / Ext '+(subAvg(item,3,6)!=null?subAvg(item,3,6)+'mm':'-')):'')):'pas de mesure')+
+        '<div class="tm-result'+((w && belowMinThickness(c, w.avg))?' thk-below-min':'')+'">'+(w?('moy '+w.avg+'mm'+(w.pct!=null?' - '+w.pct+'% use':'')+dualMeasureSummary(c, item)):'pas de mesure')+
           ((w && belowMinThickness(c, w.avg))?' <span class="thk-below-min-tag">sous le mini ('+c.minThickness+'mm)</span>':'')+'</div>'+
         '<div class="tm-stats-row"><span>Usure totale: <b>'+(stats.totalPct!=null?stats.totalPct+'%':'-')+'</b></span><span>Usure/mesure: <b>'+(stats.avgDelta!=null?'+'+stats.avgDelta+'pts':'-')+'</b></span><span>Stints restants: <b>'+(stats.theoStints!=null?stats.theoStints:'-')+'</b></span><span>Km restants estimes: <b>'+(stats.theoKm!=null?stats.theoKm+' km':'-')+'</b></span></div>'+
         renderWearSparkline(item)+
