@@ -4099,8 +4099,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const startKm=s.tyreSet?tyreSetStartKm(s.tyreSet):null;
       const stintKm=(circuitM>0)?(stats.nLaps*circuitM/1000):null;
       return {
-        title: s.name?s.name:(s.driver||'Pilote ?'),
-        subtitle: (s.name&&s.driver)?s.driver:'',
+        // Titre de la case : le pilote d'abord, puis le nom du run
+        title: [s.driver||'Pilote ?', s.name].filter(Boolean).join(' — '),
+        subtitle: '',
         cat:(d&&d.category)?d.category:'', col:col,
         startClock:sClock, endClock:(sClock!=null?sClock+stats.durationSec:null),
         durationSec:stats.durationSec, nLaps:stats.nLaps,
