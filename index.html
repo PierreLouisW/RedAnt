@@ -159,6 +159,8 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .key-check-box.check-na{background:var(--panel2);border-color:var(--border);}
 .key-check-label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;}
 .key-check-status{font-size:22px;font-weight:800;}
+.key-check-detail{font-size:12px;font-weight:700;color:var(--accent);margin-bottom:2px;}
+.tv-checks .key-check-detail{font-size:clamp(12px,1.8vw,26px);margin-bottom:4px;}
 .key-check-box.check-ok .key-check-status{color:#1f7a4d;}
 .key-check-box.check-nok .key-check-status{color:#e0433b;}
 .key-check-box.check-na .key-check-status{color:var(--muted);}
@@ -3597,8 +3599,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
   function runTaskEnded(taskKey){ return todoTaskEnded(taskKey); }
   function autoSelectRunContext(){
-    if(selectedRunContext.taskKey && !todoTaskSuperseded(selectedRunContext.taskKey)) return;
-    const next = findCurrentOfficialSessionDT();
+    if(selectedRunContext.taskKey && !runTaskEnded(selectedRunContext.taskKey)) return;
+    const next = findNextOfficialSessionDT();
     if(next){ selectedRunContext.eventId=String(next.ev.id); selectedRunContext.taskKey=next.ev.id+'::'+next.t.id; }
   }
 
@@ -4517,8 +4519,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const ltRaw=pick(rd.laptime,rg.laptime); const coRaw=pick(rd.conso,rg.conso);
     return { lt: ltRaw!=null?parseLapTime(ltRaw):null, co: coRaw!=null?parseFloat(String(coRaw).replace(',','.')):null };
   }
-  function computePlan(taskKey){
-    const plan=getRunPlan(taskKey); const ev=runEventObj(); const found=findTodoTask(taskKey);
+  // evObj : evenement de la seance. Par defaut celui selectionne dans l'onglet
+  // Run, mais l'accueil et la TV doivent pouvoir calculer un plan hors de cette
+  // selection (longueur du circuit, references pilote).
+  function computePlan(taskKey, evObj){
+    const plan=getRunPlan(taskKey); const ev=evObj||runEventObj(); const found=findTodoTask(taskKey);
     const sessionEnd=parseClock(found&&found.task&&found.task.endTime);
     const sessionStart=parseClock(found&&found.task&&found.task.startTime);
     const circuitKmKm=(Number((ev||{}).circuitKm)||0)/1000;
@@ -5816,6 +5821,47 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     }).join('');
   }
 
+  // Pendant une seance : prochain relais prevu au run plan (quoi monter, quand).
+  // Renvoie null s'il n'y a pas de plan exploitable : on garde alors le decompte.
+  function nextPlannedStop(taskKey, evObj){
+    const plan=(STATE.runPlans||{})[taskKey];
+    if(!plan || !Array.isArray(plan.runs) || plan.runs.length<2) return null;
+    const rows=computePlan(taskKey, evObj);
+    const now=new Date();
+    const nowSec=now.getHours()*3600+now.getMinutes()*60+now.getSeconds();
+    for(let i=1;i<rows.length;i++){
+      const c=rows[i];
+      if(c.startClock==null) continue;
+      if(c.startClock>=nowSec) return {run:c.run, idx:i, inSec:c.startClock-nowSec};
+    }
+    return null;
+  }
+  // "T5 · +32 L · PATEL" : ce qu'il faut avoir pret pour ce relais
+  function plannedStopText(stop){
+    const r=stop.run, bits=[];
+    if(r.tyreSet) bits.push(r.tyreSet);
+    const fa=parseFloat(String(r.fuelAdded||'').replace(',','.'));
+    if(!isNaN(fa) && fa>0) bits.push('+'+round3(fa)+' L');
+    if(r.driver) bits.push(r.driver);
+    return bits.join(' · ');
+  }
+  function fmtCountdown(sec){
+    sec=Math.max(0,Math.round(sec)); const pad=n=>String(n).padStart(2,'0');
+    return pad(Math.floor(sec/3600))+':'+pad(Math.floor((sec%3600)/60))+':'+pad(sec%60);
+  }
+  // Bloc horloge d'une seance en cours : le run plan prend la place du decompte
+  // de fin de seance quand un relais est encore a venir.
+  function liveClockInfo(next, timeStr){
+    const stop=nextPlannedStop(next.ev.id+'::'+next.t.id, next.ev);
+    if(!stop) return null;
+    const quoi=plannedStopText(stop)||'—';
+    return {
+      label: next.t.text+' — Relais '+(stop.idx+1)+' · box dans',
+      time: fmtCountdown(stop.inSec),
+      cls: (stop.inSec<180 ? 'clock-soon' : 'clock-live'),
+      sub: 'À monter : '+quoi+' — fin de séance dans '+timeStr
+    };
+  }
   function renderSessionClock(){
     const box = document.getElementById('homeSessionClock');
     if(!box) return;
@@ -5854,12 +5900,16 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const secs = totalSec%60;
     const pad = n=>String(n).padStart(2,'0');
     const timeStr = (days>0 ? days+'j ' : '')+pad(hours)+':'+pad(mins)+':'+pad(secs);
+    let mainLabel=label, mainTime=(live && next.end ? 'fin dans '+timeStr : timeStr), mainCls=cls;
+    let sub=(flagEmoji(next.ev.country)?flagEmoji(next.ev.country)+' ':'')+next.ev.label+' - '+fmtDate(next.t.date||next.ev.date)+(next.t.startTime?' '+next.t.startTime:'');
+    const plan = live ? liveClockInfo(next, timeStr) : null;
+    if(plan){ mainLabel=plan.label; mainTime=plan.time; mainCls=plan.cls; sub=plan.sub; }
     box.innerHTML = '<div class="session-clock-card">'+
-      '<div class="session-clock-name">'+label+'</div>'+
-      '<div class="session-clock-time '+cls+'">'+(live && next.end ? 'fin dans '+timeStr : timeStr)+'</div>'+
-      '<div class="session-clock-sub">'+(flagEmoji(next.ev.country)?flagEmoji(next.ev.country)+' ':'')+next.ev.label+' - '+fmtDate(next.t.date||next.ev.date)+(next.t.startTime?' '+next.t.startTime:'')+'</div>'+
+      '<div class="session-clock-name">'+mainLabel+'</div>'+
+      '<div class="session-clock-time '+mainCls+'">'+mainTime+'</div>'+
+      '<div class="session-clock-sub">'+sub+'</div>'+
     '</div>';
-    setHeaderClock({label:label, time:(live && next.end ? 'fin dans '+timeStr : timeStr), cls:cls, ev:next.ev, t:next.t});
+    setHeaderClock({label:mainLabel, time:mainTime, cls:mainCls, ev:next.ev, t:next.t});
     renderKeyChecks(next.ev.id+'::'+next.t.id);
   }
   // Rappel du decompte dans le bandeau, visible depuis n'importe quel onglet.
@@ -5896,21 +5946,38 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
 
   // boxId permet de rendre les memes controles ailleurs que sur l'accueil
   // (onglet Tele), sans dupliquer la logique de statut.
+  // Consigne du run plan pour le premier relais : essence a mettre et train a
+  // monter. C'est la valeur a preparer ; le mecano valide la case a la main.
+  function keyCheckPlanDetail(taskKey, key){
+    const plan=(STATE.runPlans||{})[taskKey];
+    const run=(plan && Array.isArray(plan.runs)) ? plan.runs[0] : null;
+    if(!run) return '';
+    if(key==='fuel'){
+      const v=parseFloat(String(run.fuelAdded||'').replace(',','.'));
+      return isNaN(v) ? '' : (round3(v)+' L');
+    }
+    if(key==='tyres') return String(run.tyreSet||'').trim();
+    return '';
+  }
   function renderKeyChecks(taskKey, boxId){
     const box = document.getElementById(boxId || 'homeKeyChecks');
     if(!box) return;
     if(!taskKey || !STATE){ box.innerHTML = ''; return; }
+    const esc = (x)=>(x==null?'':String(x)).replace(/&/g,'&amp;').replace(/</g,'&lt;');
     const mecanoTasks = STATE.todoTasks.filter(x=>x.taskKey===taskKey && x.role==='mecano');
     const overrides = (STATE.homeKeyCheckOverrides && STATE.homeKeyCheckOverrides[taskKey]) || {};
     let html = '<div class="key-checks-grid">';
     KEY_CHECK_ITEMS.forEach(item=>{
       const matches = mecanoTasks.filter(t=>(t.text||'').toLowerCase().includes(item.match));
+      const detail = keyCheckPlanDetail(taskKey, item.key);
       let cls, status, autoOk;
-      if(!matches.length){ cls='check-na'; status='N/A'; autoOk=false; }
+      if(!matches.length){ cls='check-na'; status=detail?'À valider':'N/A'; autoOk=false; }
       else if(matches.every(t=>t.done)){ cls='check-ok'; status='OK'; autoOk=true; }
       else { cls='check-nok'; status='NOK'; autoOk=false; }
       if(overrides[item.key] && !autoOk){ cls='check-ok'; status='OK (manuel)'; }
-      html += '<div class="key-check-box '+cls+'" data-key="'+item.key+'" title="Cliquer pour forcer OK / repasser en automatique"><div class="key-check-label">'+item.label+'</div><div class="key-check-status">'+status+'</div></div>';
+      html += '<div class="key-check-box '+cls+'" data-key="'+item.key+'" title="Cliquer pour forcer OK / repasser en automatique"><div class="key-check-label">'+item.label+'</div>'+
+        (detail?'<div class="key-check-detail">'+esc(detail)+'</div>':'')+
+        '<div class="key-check-status">'+status+'</div></div>';
     });
     html += '</div>';
     box.innerHTML = html;
@@ -5944,11 +6011,14 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
             m=Math.floor((total%3600)/60), s=total%60;
       const chrono=(j>0?j+'j ':'')+pad(h)+':'+pad(m)+':'+pad(s);
       const quand=fmtDate(suivant.t.date||suivant.ev.date)+(suivant.t.startTime?' '+suivant.t.startTime:'');
+      // Seance en cours : on annonce le prochain relais du run plan plutot que
+      // le seul decompte de fin de seance.
+      const plan = (live && suivant.t.isOfficialSession) ? liveClockInfo(suivant, chrono) : null;
       clockBox.innerHTML =
-        '<div class="tv-clock-name">'+esc(suivant.t.text)+(live?' — EN COURS':'')+'</div>'+
-        '<div class="tv-clock-time '+cls+'">'+(live&&suivant.end?'fin dans '+chrono:chrono)+'</div>'+
-        '<div class="tv-clock-sub">'+(flagEmoji(suivant.ev.country)?flagEmoji(suivant.ev.country)+' ':'')+
-          esc(suivant.ev.label)+' — '+esc(quand)+'</div>';
+        '<div class="tv-clock-name">'+esc(plan?plan.label:(suivant.t.text+(live?' — EN COURS':'')))+'</div>'+
+        '<div class="tv-clock-time '+(plan?plan.cls:cls)+'">'+esc(plan?plan.time:(live&&suivant.end?'fin dans '+chrono:chrono))+'</div>'+
+        '<div class="tv-clock-sub">'+(plan?esc(plan.sub):((flagEmoji(suivant.ev.country)?flagEmoji(suivant.ev.country)+' ':'')+
+          esc(suivant.ev.label)+' — '+esc(quand)))+'</div>';
     }
     const box = document.getElementById('tvKeyChecks');
     if(!box) return;
@@ -7240,10 +7310,11 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       activeTodoSession = guessTodoSessionType(next.t.text);
     }
   }
-  // idem pour l'onglet Setup : se positionne sur la seance de reference, modifiable a la main
+  // idem pour l'onglet Setup : se positionne sur la prochaine session officielle, modifiable a la main
+  // (contrairement au To Do, il bascule des la fin de la seance : on prepare la suivante)
   function autoSelectSetupContext(){
-    if(selectedSetupContext.taskKey && !todoTaskSuperseded(selectedSetupContext.taskKey)) return;
-    const next = findCurrentOfficialSessionDT();
+    if(selectedSetupContext.taskKey && !todoTaskEnded(selectedSetupContext.taskKey)) return;
+    const next = findNextOfficialSessionDT();
     if(next){
       selectedSetupContext.eventId = String(next.ev.id);
       selectedSetupContext.taskKey = next.ev.id+'::'+next.t.id;
