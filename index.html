@@ -5969,6 +5969,19 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     if(key==='tyres') return String(run.tyreSet||'').trim();
     return '';
   }
+  // Warm-up : a faire au plus tard 1 h avant le depart de la seance. La case
+  // affiche le temps qui reste avant cette echeance, puis le retard. Une fois
+  // la seance partie, l'echeance n'a plus de sens : on revient au statut ecrit.
+  function keyCheckWarmupDetail(taskKey){
+    const found=findTodoTask(taskKey); if(!found || !found.task.startTime) return '';
+    const dateStr=found.task.date||found.ev.date; if(!dateStr) return '';
+    const start=new Date(dateStr+'T'+found.task.startTime+':00');
+    if(isNaN(start.getTime())) return '';
+    const now=new Date();
+    if(now>=start) return '';
+    const reste=(start.getTime()-3600000-now.getTime())/1000;
+    return reste>=0 ? fmtCountdown(reste) : ('retard '+fmtCountdown(-reste));
+  }
   function renderKeyChecks(taskKey, boxId){
     const box = document.getElementById(boxId || 'homeKeyChecks');
     if(!box) return;
@@ -5979,7 +5992,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     let html = '<div class="key-checks-grid">';
     KEY_CHECK_ITEMS.forEach(item=>{
       const matches = mecanoTasks.filter(t=>(t.text||'').toLowerCase().includes(item.match));
-      const detail = keyCheckPlanDetail(taskKey, item.key);
+      const detail = (item.key==='warm') ? keyCheckWarmupDetail(taskKey) : keyCheckPlanDetail(taskKey, item.key);
       let cls, status, autoOk;
       if(!matches.length){ cls='check-na'; status='N/A'; autoOk=false; }
       else if(matches.every(t=>t.done)){ cls='check-ok'; status='OK'; autoOk=true; }
