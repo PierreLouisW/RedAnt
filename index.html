@@ -3597,8 +3597,8 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   }
   function runTaskEnded(taskKey){ return todoTaskEnded(taskKey); }
   function autoSelectRunContext(){
-    if(selectedRunContext.taskKey && !runTaskEnded(selectedRunContext.taskKey)) return;
-    const next = findNextOfficialSessionDT();
+    if(selectedRunContext.taskKey && !todoTaskSuperseded(selectedRunContext.taskKey)) return;
+    const next = findCurrentOfficialSessionDT();
     if(next){ selectedRunContext.eventId=String(next.ev.id); selectedRunContext.taskKey=next.ev.id+'::'+next.t.id; }
   }
 
@@ -5650,8 +5650,6 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     renderHomeList(reviewParts, 'homeReviewList');
 
     // planning widget : toutes les sessions officielles du meeting selectionne (liste deroulante ci-dessus)
-    const today = todayISO();
-    const nowHM = new Date().toTimeString().slice(0,5);
     const box = document.getElementById('homeNextRace');
 
     const meetingSel = document.getElementById('homeMeetingSelect');
@@ -5689,18 +5687,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // rappel To Do Mecano pour la prochaine session officielle
     const todoBox = document.getElementById('homeTodoMecanoReminder');
     if(todoBox){
-      let nextOfficial = null;
-      (STATE.mlmcEvents||[]).forEach(ev=>{
-        (ev.tasks||[]).forEach(t=>{
-          if(!t.isOfficialSession) return;
-          const tDate = t.date || ev.date;
-          const isFuture = tDate>today || (tDate===today && (!t.endTime || t.endTime>=nowHM));
-          if(!isFuture) return;
-          if(!nextOfficial || tDate<nextOfficial.tDate || (tDate===nextOfficial.tDate && (t.startTime||'99:99')<(nextOfficial.t.startTime||'99:99'))){
-            nextOfficial = {t, ev, tDate};
-          }
-        });
-      });
+      // Meme seance que l'onglet To Do : celle en cours, ou la derniere
+      // commencee tant que la suivante n'a pas demarre.
+      const nextOfficial = findCurrentOfficialSessionDT();
       if(nextOfficial){
         const taskKey = nextOfficial.ev.id+'::'+nextOfficial.t.id;
         const mecanoTasks = STATE.todoTasks.filter(x=>x.taskKey===taskKey && x.role==='mecano');
@@ -5712,8 +5701,9 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
           const color = total===0 ? 'var(--muted)' : (allDone ? '#1f7a4d' : '#c0392b');
           return '<span style="color:'+color+';font-weight:700;">'+done+' / '+total+'</span>';
         };
+        const commencee = nextOfficial.start ? (new Date() >= nextOfficial.start) : false;
         todoBox.innerHTML = '<div class="next-race-card">'+
-          '<div class="nr-label">To Do - prochaine session</div>'+
+          '<div class="nr-label">To Do - '+(commencee?'session en cours':'prochaine session')+'</div>'+
           '<div class="nr-name">'+(nextOfficial.t.startTime?nextOfficial.t.startTime+' - ':'')+nextOfficial.t.text+' ('+nextOfficial.ev.label+')</div>'+
           '<div class="nr-countdown" style="font-size:20px;display:flex;gap:24px;justify-content:center;">'+
             '<span>Mecano '+badge(mecanoDone, mecanoTasks.length)+'</span>'+
@@ -5755,6 +5745,38 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
   function findUpcomingOfficialSessions(eventId){ return findUpcomingTasks(eventId, true); }
   function findNextOfficialSessionDT(eventId){
     return findUpcomingOfficialSessions(eventId)[0] || null;
+  }
+  // Seance de reference du To Do (et du Setup / de la Run Sheet) : la derniere
+  // seance commencee reste la reference jusqu'au DEBUT de la suivante, pour
+  // qu'une liste puisse etre finie apres le drapeau a damier. Entre deux
+  // meetings, on repasse a la prochaine seance a venir.
+  function findCurrentOfficialSessionDT(eventId){
+    if(!STATE) return null;
+    const now=new Date();
+    const commencees=[];
+    (STATE.mlmcEvents||[]).forEach(ev=>{
+      if(eventId && String(ev.id)!==String(eventId)) return;
+      (ev.tasks||[]).forEach(t=>{
+        if(!t.isOfficialSession) return;
+        const dateStr=t.date||ev.date; if(!dateStr) return;
+        const start=new Date(dateStr+'T'+(t.startTime||'00:00')+':00');
+        if(start<=now) commencees.push({t:t, ev:ev, start:start, end:t.endTime?new Date(dateStr+'T'+t.endTime+':00'):null});
+      });
+    });
+    const suivante=findNextOfficialSessionDT(eventId);
+    if(!commencees.length) return suivante;
+    commencees.sort((a,b)=>a.start-b.start);
+    const derniere=commencees[commencees.length-1];
+    // Meeting termine : la derniere seance courue n'est plus d'actualite
+    if(suivante && String(suivante.ev.id)!==String(derniere.ev.id)) return suivante;
+    return derniere;
+  }
+  // Une seance cesse d'etre la reference quand la suivante a commence
+  function todoTaskSuperseded(taskKey){
+    const found=findTodoTask(taskKey); if(!found) return true;
+    const cur=findCurrentOfficialSessionDT();
+    if(!cur) return todoTaskEnded(taskKey);
+    return (cur.ev.id+'::'+cur.t.id)!==String(taskKey);
   }
   // Meeting effectivement affiche sur la page d'accueil : celui choisi dans la liste deroulante,
   // sinon le prochain meeting ayant une session officielle a venir, sinon le dernier meeting officiel passe.
@@ -7206,21 +7228,22 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     const end = found.task.endTime ? new Date(dateStr+'T'+found.task.endTime+':00') : new Date(start.getTime()+2*3600000);
     return new Date() > end;
   }
-  // a l'ouverture du To Do : se positionne tout seul sur la prochaine session officielle a venir
-  // (garde la selection en cours tant qu'elle n'est pas passee, pour ne pas gener un travail en cours)
+  // a l'ouverture du To Do : se positionne tout seul sur la seance de reference
+  // (celle en cours, ou la derniere commencee tant que la suivante n'a pas
+  // demarre ; une selection manuelle tient tant qu'elle reste la reference)
   function autoSelectTodoContext(){
-    if(selectedTodoContext.taskKey && !todoTaskEnded(selectedTodoContext.taskKey)) return;
-    const next = findNextOfficialSessionDT();
+    if(selectedTodoContext.taskKey && !todoTaskSuperseded(selectedTodoContext.taskKey)) return;
+    const next = findCurrentOfficialSessionDT();
     if(next){
       selectedTodoContext.eventId = String(next.ev.id);
       selectedTodoContext.taskKey = next.ev.id+'::'+next.t.id;
       activeTodoSession = guessTodoSessionType(next.t.text);
     }
   }
-  // idem pour l'onglet Setup : se positionne sur la prochaine session officielle, modifiable a la main
+  // idem pour l'onglet Setup : se positionne sur la seance de reference, modifiable a la main
   function autoSelectSetupContext(){
-    if(selectedSetupContext.taskKey && !todoTaskEnded(selectedSetupContext.taskKey)) return;
-    const next = findNextOfficialSessionDT();
+    if(selectedSetupContext.taskKey && !todoTaskSuperseded(selectedSetupContext.taskKey)) return;
+    const next = findCurrentOfficialSessionDT();
     if(next){
       selectedSetupContext.eventId = String(next.ev.id);
       selectedSetupContext.taskKey = next.ev.id+'::'+next.t.id;
@@ -8759,7 +8782,7 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
     // Acces restreint (mecanos) : verrouille sur la prochaine session officielle, pas de navigation vers les sessions/events precedents
     const restricted = !isEngineer();
     if(restricted){
-      const next = findNextOfficialSessionDT();
+      const next = findCurrentOfficialSessionDT();
       if(next){ selectedTodoContext.eventId=String(next.ev.id); selectedTodoContext.taskKey=next.ev.id+'::'+next.t.id; }
       const ev=(STATE.mlmcEvents||[]).find(e=>String(e.id)===String(selectedTodoContext.eventId));
       const found=findTodoTask(selectedTodoContext.taskKey);
