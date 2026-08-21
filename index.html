@@ -159,8 +159,18 @@ select.statusSelect{width:auto;padding:4px 8px;font-size:12px;}
 .key-check-box.check-na{background:var(--panel2);border-color:var(--border);}
 .key-check-label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;}
 .key-check-status{font-size:22px;font-weight:800;}
-.key-check-detail{font-size:12px;font-weight:700;color:var(--accent);margin-bottom:2px;}
-.tv-checks .key-check-detail{font-size:clamp(12px,1.8vw,26px);margin-bottom:4px;}
+/* Consigne du run plan (litrage, train) : c'est elle qu'on lit de loin, la
+   case se contentant de passer au vert quand le mecano l'a validee. */
+.key-check-detail{font-size:26px;font-weight:800;line-height:1.15;word-break:break-word;}
+/* Un code de train long (366_SPA_R1) ne doit pas se couper en deux lignes :
+   la taille descend d'un cran selon la longueur du texte. */
+.key-check-detail.kc-mid{font-size:20px;}
+.key-check-detail.kc-long{font-size:15px;}
+.tv-checks .key-check-detail{font-size:clamp(24px,3.6vw,52px);}
+.tv-checks .key-check-detail.kc-mid{font-size:clamp(18px,2.6vw,38px);}
+.tv-checks .key-check-detail.kc-long{font-size:clamp(14px,1.9vw,28px);}
+.key-check-box.check-ok .key-check-detail{color:#1f7a4d;}
+.key-check-box.check-nok .key-check-detail{color:#e0433b;}
 .key-check-box.check-ok .key-check-status{color:#1f7a4d;}
 .key-check-box.check-nok .key-check-status{color:#e0433b;}
 .key-check-box.check-na .key-check-status{color:var(--muted);}
@@ -5971,13 +5981,19 @@ const SEED = {"chassis": "P3-#366", "totalMileage": 4020.76, "parts": [{"partNo"
       const matches = mecanoTasks.filter(t=>(t.text||'').toLowerCase().includes(item.match));
       const detail = keyCheckPlanDetail(taskKey, item.key);
       let cls, status, autoOk;
-      if(!matches.length){ cls='check-na'; status=detail?'À valider':'N/A'; autoOk=false; }
+      if(!matches.length){ cls='check-na'; status='N/A'; autoOk=false; }
       else if(matches.every(t=>t.done)){ cls='check-ok'; status='OK'; autoOk=true; }
       else { cls='check-nok'; status='NOK'; autoOk=false; }
+      const ok = autoOk || !!overrides[item.key];
       if(overrides[item.key] && !autoOk){ cls='check-ok'; status='OK (manuel)'; }
+      // Avec une consigne du run plan, la case affiche la consigne en grand et
+      // dit oui/non par sa couleur : le statut ecrit ferait doublon.
+      if(detail) cls = ok ? 'check-ok' : 'check-nok';
       html += '<div class="key-check-box '+cls+'" data-key="'+item.key+'" title="Cliquer pour forcer OK / repasser en automatique"><div class="key-check-label">'+item.label+'</div>'+
-        (detail?'<div class="key-check-detail">'+esc(detail)+'</div>':'')+
-        '<div class="key-check-status">'+status+'</div></div>';
+        (detail
+          ? '<div class="key-check-detail'+(detail.length>11?' kc-long':(detail.length>6?' kc-mid':''))+'">'+esc(detail)+'</div>'
+          : '<div class="key-check-status">'+status+'</div>')+
+        '</div>';
     });
     html += '</div>';
     box.innerHTML = html;
